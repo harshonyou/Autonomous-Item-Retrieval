@@ -298,7 +298,12 @@ class RobotController(Node):
                 return
 
             case State.HOMING:
-                self.get_logger().info(f"HOMING")
+                # self.get_logger().info(f"HOMING")
+                
+                if not self.hold.data[0].holding_item:
+                    self.goal_distance = random.uniform(1.0, 2.0)
+                    self.state = State.FORWARD
+                    return
                 
                 if self.arrived:
                     self.arrived = False
@@ -307,43 +312,57 @@ class RobotController(Node):
                     self.state = State.FORWARD
                     return
                 
-                self.current_position = (self.pose.position.x, self.pose.position.y)
+                # dx = self.initial_x - self.pose.position.x
+                # dy = self.initial_y - self.pose.position.y
                 
-                distance_to_target = math.sqrt((self.target_position[0] - self.current_position[0])**2 +
-                         (self.target_position[1] - self.current_position[1])**2)
+                # distance = math.sqrt(dx**2 + dy**2)
+                
+                # target_angle = math.atan2(dy, dx)
+                # angle_diff = angles.normalize_angle(target_angle - self.yaw)
 
+                # cmd_vel = Twist()
+
+                # if abs(angle_diff) > 0.1:  
+                #     cmd_vel.angular.z = ANGULAR_VELOCITY * 0.5 * angle_diff
+                # elif distance > 0.1:  
+                #     cmd_vel.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * distance
+                # else:
+                #     self.arrived = True
+                #     self.get_logger().info('Arrived at target!')
+
+                # self.cmd_vel_publisher.publish(cmd_vel)
+                
+                dx = self.initial_x - self.pose.position.x
+                dy = self.initial_y - self.pose.position.y
+                
+                distance = math.sqrt(dx**2 + dy**2)
+                
+                if distance < 0.1:
+                    self.arrived = True
+                    self.get_logger().info('Arrived at target!')
+                
+                target_angle = math.atan2(dy, dx)
+                angle_diff = angles.normalize_angle(target_angle - self.yaw)
 
                 cmd_vel = Twist()
-                if self.pose is not None:
-                    target_angle = math.atan2(self.target_position[1] - self.current_position[1],
-                                            self.target_position[0] - self.current_position[0])
-                    
-                    angle_diff = angles.normalize_angle(target_angle - self.yaw)      
-
-                    # Proportional controller for rotation
-                    if abs(angle_diff) > 0.1:  # Threshold to stop rotation
-                        cmd_vel.angular.z = 0.3 * angle_diff
-
-                    # Proportional controller for translation
-                    elif distance_to_target > 0.1:  # Threshold to stop translation
-                        cmd_vel.linear.x = 0.5 * distance_to_target
-
-                    else:
-                        self.arrived = True
-                        self.get_logger().info('Arrived at target!')
+                
+                if angle_diff > 0:
+                    val = 0.25
+                else:
+                    val = -0.25
+                
+                
+                if abs(angle_diff) > 0.1:
+                    cmd_vel.linear.x = 0.0
+                    cmd_vel.angular.z = val
+                else:
+                    cmd_vel.linear.x = 0.5
+                    cmd_vel.angular.z = 0.0
+                
+                self.get_logger().info(f"Distance: {distance}; Angle: {angle_diff}; Val: {cmd_vel.angular.z}")
 
                 self.cmd_vel_publisher.publish(cmd_vel)
-
-                # estimated_distance = 69.0 * float(self.home.size) ** -0.89
                 
-                # self.get_logger().info(f"{estimated_distance}")
-                # # .3 if less than that then we start grabbing procedure                
-
-                # msg = Twist()
-                # msg.linear.x = 0.25 * estimated_distance
-                # msg.angular.z = self.home.x / 320.0
-
-                # self.cmd_vel_publisher.publish(msg)
                 return
 
             case _:
