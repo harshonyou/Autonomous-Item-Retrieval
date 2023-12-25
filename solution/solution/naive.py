@@ -346,10 +346,24 @@ class RobotController(Node):
 
                 cmd_vel = Twist()
                 
-                if angle_diff > 0:
+                val = 0.25
+                
+                if abs(angle_diff) > math.pi / 2:
+                    val = 1.0
+                elif abs(angle_diff) > math.pi / 4:
+                    val = 0.5
+                elif abs(angle_diff) > math.pi / 8:
                     val = 0.25
+                elif abs(angle_diff) > math.pi / 12:
+                    val = 0.125
                 else:
-                    val = -0.25
+                    val = 0.0625
+                    
+                
+                if angle_diff > 0:
+                    val *= 1
+                else:
+                    val *= -1
                 
                 
                 if abs(angle_diff) > 0.1:
