@@ -22,6 +22,7 @@ import angles
 
 LINEAR_VELOCITY  = 0.3 # Metres per second
 ANGULAR_VELOCITY = 0.5 # Radians per second
+DISTANCE_PROPRTIONAL = 0.5
 
 TURN_LEFT = 1 # Postive angular velocity turns left
 TURN_RIGHT = -1 # Negative angular velocity turns right
@@ -267,46 +268,37 @@ class RobotController(Node):
                 self.get_logger().info(f"{estimated_distance}")
                 # .3 if less than that then we start grabbing procedure
                 if estimated_distance < 0.3:
+                    self.previous_pose = self.pose
+                    self.goal_distance = 0.15
                     self.state = State.GRABING
                     return
                 
 
                 msg = Twist()
-                msg.linear.x = LINEAR_VELOCITY * 0.5 * estimated_distance
+                msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * estimated_distance
                 msg.angular.z = item.x / 320.0
 
                 self.cmd_vel_publisher.publish(msg)
 
             case State.GRABING:
                 self.get_logger().info(f"GRABING")
-            
-                speed = 0.25
-            
-                travel_time = 0.3 / speed
                 
-                twist = Twist()
-                twist.linear.x = speed
-                twist.angular.z = 0.0
-                self.cmd_vel_publisher.publish(twist)
+                msg = Twist()
+                msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL
+                self.cmd_vel_publisher.publish(msg)
+
+                difference_x = self.pose.position.x - self.previous_pose.position.x
+                difference_y = self.pose.position.y - self.previous_pose.position.y
+                distance_travelled = math.sqrt(difference_x ** 2 + difference_y ** 2)
+
+                if distance_travelled >= self.goal_distance:
+                    self.previous_pose = self.pose
+                    self.state = State.HOMING
                 
-                end_time = self.get_clock().now().seconds_nanoseconds()[0] + travel_time
-                while self.get_clock().now().seconds_nanoseconds()[0] < end_time:
-                    # Keep publishing the velocity command at regular intervals
-                    self.cmd_vel_publisher.publish(twist)
-                    time.sleep(0.01)
-                
-                # grab the item
-                self.previous_pose = self.pose
-                self.state = State.HOMING
                 return
 
             case State.HOMING:
                 self.get_logger().info(f"HOMING")
-                
-                # if not self.home.visible:
-                #     self.previous_pose = self.pose
-                #     self.state = State.FORWARD
-                #     return
                 
                 if self.arrived:
                     self.arrived = False
