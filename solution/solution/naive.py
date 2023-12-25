@@ -251,8 +251,14 @@ class RobotController(Node):
                     return
                 
                 # item  = max(self.items.data, key=lambda item: (item.value, item.diameter))
+                # def custom_key(item):
+                #     return item.value / item.diameter
+                
+                # item = max(self.items.data, key=custom_key)
+                w_value = 1.0
+                w_diameter = 0.5
                 def custom_key(item):
-                    return item.value / item.diameter
+                    return w_value * item.value / 15.0 + w_diameter * item.diameter / 640.0
                 
                 item = max(self.items.data, key=custom_key)
 
@@ -266,7 +272,7 @@ class RobotController(Node):
                 
 
                 msg = Twist()
-                msg.linear.x = 0.25 * estimated_distance
+                msg.linear.x = LINEAR_VELOCITY * 0.5 * estimated_distance
                 msg.angular.z = item.x / 320.0
 
                 self.cmd_vel_publisher.publish(msg)
