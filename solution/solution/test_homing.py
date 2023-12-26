@@ -5,7 +5,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.signals import SignalHandlerOptions
 from rclpy.executors import ExternalShutdownException
-from geometry_msgs.msg import Twist, Pose
+from geometry_msgs.msg import Twist, Pose, Point
 from nav_msgs.msg import Odometry
 
 from tf_transformations import euler_from_quaternion
@@ -121,8 +121,32 @@ class RobotController(Node):
         twist.angular.z = angular_velocity
         self.velocity_publisher.publish(twist)
 
+    def method_3(self):
+        speed = Twist()
+        goal = Point()
+        goal.x = 1.1
+        goal.y = 2.3
+        
+        
+        orientation_q = self.pose.orientation
+        orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
+        _, _, theta = euler_from_quaternion(orientation_list)
+        
+        inc_x = goal.x - self.pose.position.x
+        inc_y = goal.y - self.pose.position.y
+        angle_to_goal = math.atan2(inc_y, inc_x)
+        if abs(angle_to_goal - theta) > 0.1:
+            speed.linear.x = 0.0
+            speed.angular.z = 0.3
+        else:
+            speed.linear.x = 0.5
+            speed.angular.z = 0.0
+       
+        self.velocity_publisher.publish(speed) 
+        
+
     def control_loop(self):
-        self.method_2()
+        self.method_3()
 
     def destroy_node(self):
         super().destroy_node()
