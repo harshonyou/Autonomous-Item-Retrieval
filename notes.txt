@@ -1,0 +1,67 @@
+ros2 launch assessment assessment_launch.py --show-args
+
+
+ros2 launch assessment assessment_launch.py visualise_sensors:=true obstacles:=false use_nav2:=true rviz_config:=/home/aei/auro/src/assessment/rviz/namespaced_nav2.rviz odometry_source:=WORLD
+
+ros2 launch solution solution_launch.py visualise_sensors:=true obstacles:=false rviz_config:=/home/aei/auro/src/assessment/rviz/namespaced_nav2.rviz
+
+ros2 run turtlebot3_teleop teleop_keyboard --ros-args -r __ns:=/robot1 
+
+
+Bot:
+-1.737056
+0.054505
+
+Ball:
+-1.480000
+0.070000
+
+Bot carried ball:
+-1.622647
+0.061089
+
+Bot before yellow
+-1.657947
+0.059046
+
+https://www.calculator.net/distance-calculator.html
+Distance before ball does not get detected: 0.25752258572987
+Distance between ball not detected and ball picked: 0.11459829116091
+
+.2921783875780491
+
+AMCL?
+
+
+Visual SLAM
+https://github.com/u-t-autonomous/turtlebot-detect-slam
+
+Visual SLAM using LIDAR and Camera
+https://github.com/ujasmandavia/Visual-SLAM-and-Visual-Inertial-Odometry-using-Lidar-and-Monocular-camera-
+
+TurtleBot2 Auto Nav
+https://github.com/ujasmandavia/turtlebot-2-autonomous-navigation
+
+
+https://lp-research.atlassian.net/wiki/spaces/LKB/pages/1750761481/LPSLAM+for+ROS2+Documentation
+
+
+
+Drive to co-ordinates with object avoidance
+https://github.com/tabris2015/differential-drive-rpi-pico
+https://github.com/tabris2015/rpi-robot-ros-foxy
+
+
+NVIDIA MiDAS
+https://github.com/NVIDIA-AI-IOT/ros2_torch2trt_examples
+
+NAIVE OBJECT AVOIDANCE
+https://github.com/Rad-hi/Obstacle-Avoidance-ROS
+
+TURTLEBOT
+https://github.com/Tinker-Twins/TurtleBot3
+
+https://github.com/Tinker-Twins/Autonomy-Science-And-Systems
+
+AHA?
+https://github.com/stella-cv/stella_vslam_ros
