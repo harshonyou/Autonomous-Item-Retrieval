@@ -57,7 +57,7 @@ def uv_to_depth_array(u, diameter_pixels, z_value, image_width, h_fov):
 
 class SimpleLaserScanRepublisher(Node):
     def __init__(self):
-        super().__init__('simple_laser_scan_republisher')
+        super().__init__('simple_laser_scan_republisher', namespace="robot1")
         self.items:ItemList = ItemList()
         self.camera_model:PinholeCameraModel = camera_model()
         self.h_fov = 1.085595  # Horizontal field of view in radians
@@ -67,31 +67,31 @@ class SimpleLaserScanRepublisher(Node):
         
         self.item_subscriber = self.create_subscription(
             ItemList,
-            '/robot1/items',
+            'items',
             self.item_callback,
             10
         )
         self.subscription = self.create_subscription(
             LaserScan,
-            '/robot1/scan',
+            'scan',
             self.scan_callback,
             10)
-        self.publisher = self.create_publisher(LaserScan, '/updated_scan', 10)
+        self.publisher = self.create_publisher(LaserScan, 'updated_scan', 10)
 
     def item_callback(self, msg):
         self.items = msg
 
     def scan_callback(self, msg: LaserScan):
         # Directly republish the received LaserScan data
-        if len(self.items.data) == 0:
+        if len(self.items.data) == 0: # the rviz wont get updated if there are no items
             return
         
         self.get_logger().info(f"Number of items: {len(self.items.data)}")
         depth_arrs = []
         
         for item in self.items.data:
-            x = item.x * -1 # silly guy
-            y = item.y * -1
+            x = item.x
+            y = item.y
             uv = (self.camera_model.cx() + x, self.camera_model.cy() + y)
             diameter_pixels = item.diameter
             scale_factor = self.actual_diameter / diameter_pixels
@@ -111,14 +111,14 @@ class SimpleLaserScanRepublisher(Node):
             stacked_depth_arrs = np.stack(depth_arrs, axis=0)
             min_values = np.min(stacked_depth_arrs, axis=0)
             
-        min_values_start_angle_deg = math.degrees(self.h_fov / 2)
+        min_values_start_angle_deg = math.degrees(-self.h_fov / 2)
         laser_scan_start_angle_deg = math.degrees(msg.angle_min)
         angle_increment = math.degrees(msg.angle_increment)
         
         index_offset = int((min_values_start_angle_deg - laser_scan_start_angle_deg) / angle_increment)
 
         for i, depth in enumerate(min_values):
-            range_index = index_offset - i
+            range_index = index_offset + i
             msg.ranges[range_index] = min(depth, msg.ranges[range_index])
         
         # min_values_start_angle_deg = math.degrees(-self.h_fov / 2)
