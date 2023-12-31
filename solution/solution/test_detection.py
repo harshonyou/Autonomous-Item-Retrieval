@@ -13,20 +13,20 @@ from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
 import numpy as np
 import struct
+from rclpy.parameter import Parameter
 
 class RobotController(Node):
 
     def __init__(self):
-        super().__init__('detect_ball_3d', namespace='robot1')
+        super().__init__('detect_ball_3d', namespace='robot1', parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
 
         self.get_logger().info('Detecting in 3D')
-        ns = self.get_namespace()
 
-        self.ball2d_sub  = self.create_subscription(ItemList,f"{ns}/items",self.ball_rcv_callback, 10)
-        self.ball3d_pub  = self.create_publisher(Point,"/detected_ball_3d",1)
-        self.ball_marker_pub  = self.create_publisher(Marker,"/ball_3d_marker",1)
+        self.ball2d_sub  = self.create_subscription(ItemList,"items",self.ball_rcv_callback, 10)
+        # self.ball3d_pub  = self.create_publisher(Point,"detected_ball_3d",1)
+        # self.ball_marker_pub  = self.create_publisher(Marker,"ball_3d_marker",1)
         # self.ball_cloud_pub = self.create_publisher(PointCloud, "/ball_3d_cloud", 1)
-        self.ball_cloud_pub = self.create_publisher(PointCloud2, "/ball_3d_cloud", 1)
+        self.ball_cloud_pub = self.create_publisher(PointCloud2, "ball_3d_cloud", 1)
 
         # self.camera_frame = "robot1/camera_link"
         self.camera_frame = "camera_link"
@@ -72,7 +72,7 @@ class RobotController(Node):
             sphere_center_y = p.y = x
             sphere_center_z = p.z = 0.0
             
-            self.get_logger().info(f"Ball 3D: {p}")
+            # self.get_logger().info(f"Ball 3D: {p}")
             
             # self.ball3d_pub.publish(p)
             # cloud.points.append(p)
@@ -131,6 +131,7 @@ class RobotController(Node):
         # self.ball_cloud_pub.publish(cloud)
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
+        # self.get_logger().info('Current time: "%s"' % self.get_clock().now().to_msg())
         header.frame_id = self.camera_frame
 
         fields = [PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
