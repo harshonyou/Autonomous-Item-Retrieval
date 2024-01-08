@@ -1,4 +1,5 @@
 import math
+import random
 import sys
 from enum import Enum
 
@@ -18,15 +19,20 @@ from image_geometry import PinholeCameraModel
 
 from tf_transformations import euler_from_quaternion
 
+import angles
+
 
 DEFAULT_POSE_ORIENTATION_Z = 0.0
 DEFAULT_POSE_ORIENTATION_W = 0.99
 
-LINEAR_VELOCITY = 0.3
-ANGULAR_VELOCITY = 0.5
+TURN_LEFT = -1
+TURN_RIGHT = 1
+
+LINEAR_VELOCITY = 0.11 # 0.3
+ANGULAR_VELOCITY = 0.75 # 0.5
 DISTANCE_PROPRTIONAL = 0.5
 
-SCAN_THRESHOLD = 0.5
+SCAN_THRESHOLD = 0.45
 SCAN_FRONT = 0
 SCAN_LEFT = 1
 SCAN_BACK = 2
@@ -38,6 +44,14 @@ class State(Enum):
     GRABBING = 2
     HOMING = 3
     MOVING_TO_GOAL = 4
+    TURNING = 5
+    FORWARD = 6
+    
+# Camera Properties
+H_FOV = 1.085595
+CAMERA_POS_GAZEBO = (0.076, 0.0, 0.093)
+ACTUAL_RADIUS = 0.075
+ACTUAL_DIAMETER = ACTUAL_RADIUS * 2
 
 class RobotController(Node):
 
@@ -56,12 +70,8 @@ class RobotController(Node):
         # Logger
         self.logger = self.get_logger()
         
-        # Camera Properties
+        # Camera Model
         self.camera_model:PinholeCameraModel = camera_model()
-        self.h_fov = 1.085595
-        self.camera_pos_gazebo = (0.076, 0.0, 0.093)
-        self.actual_radius = 0.075
-        self.actual_diameter = self.actual_radius * 2
         
         # NAV2
         self.navigator = BasicNavigator(namespace='robot1')
@@ -85,6 +95,10 @@ class RobotController(Node):
         
         # Grabbed Item
         self.grabbed_item = ItemHolder()
+        
+        # Obstacle Avoidance
+        self.turn_angle = 0.0
+        self.turn_direction = TURN_LEFT
 
         # Subscribers
         self.odom_subscriber = self.create_subscription(
@@ -141,15 +155,18 @@ class RobotController(Node):
 
     
     def lidar_callback(self, msg):
-        front_ranges = msg.ranges[331:359] + msg.ranges[0:30] # 30 to 331 degrees (30 to -30 degrees)
-        left_ranges  = msg.ranges[31:90] # 31 to 90 degrees (31 to 90 degrees)
-        back_ranges  = msg.ranges[91:270] # 91 to 270 degrees (91 to -90 degrees)
-        right_ranges = msg.ranges[271:330] # 271 to 330 degrees (-30 to -91 degrees)
+        left_ranges  = msg.ranges[314:359]
+        right_ranges = msg.ranges[0:45]
+        
+        # front_ranges = msg.ranges[331:359] + msg.ranges[0:30] # 30 to 331 degrees (30 to -30 degrees)
+        # left_ranges  = msg.ranges[31:90] # 31 to 90 degrees (31 to 90 degrees)
+        # back_ranges  = msg.ranges[91:270] # 91 to 270 degrees (91 to -90 degrees)
+        # right_ranges = msg.ranges[271:330] # 271 to 330 degrees (-30 to -91 degrees)
 
         # Store True/False values for each sensor segment, based on whether the nearest detected obstacle is closer than SCAN_THRESHOLD
-        self.scan_triggered[SCAN_FRONT] = min(front_ranges) < SCAN_THRESHOLD 
+        # self.scan_triggered[SCAN_FRONT] = min(front_ranges) < SCAN_THRESHOLD 
         self.scan_triggered[SCAN_LEFT]  = min(left_ranges)  < SCAN_THRESHOLD
-        self.scan_triggered[SCAN_BACK]  = min(back_ranges)  < SCAN_THRESHOLD
+        # self.scan_triggered[SCAN_BACK]  = min(back_ranges)  < SCAN_THRESHOLD
         self.scan_triggered[SCAN_RIGHT] = min(right_ranges) < SCAN_THRESHOLD
     
     def set_initial_pose(self):
@@ -207,11 +224,11 @@ class RobotController(Node):
         item = max(self.fov_items.data, key=custom_key)
         
         diameter_pixels = item.diameter
-        scale_factor = self.actual_diameter / diameter_pixels
+        scale_factor = ACTUAL_DIAMETER / diameter_pixels
         focal_length = self.camera_model.fx()
         
         Z_camera = focal_length * scale_factor
-        Z_world = Z_camera + self.camera_pos_gazebo[2]
+        Z_world = Z_camera + CAMERA_POS_GAZEBO[2]
         
         if Z_world < 0.3:
             self.previous_pose = self.pose
@@ -234,15 +251,78 @@ class RobotController(Node):
         difference_y = self.pose.position.y - self.previous_pose.position.y
         distance_travelled = math.sqrt(difference_x ** 2 + difference_y ** 2)
 
-        if distance_travelled >= self.goal_distance:
+        if distance_travelled >= self.goal_distance: #check if the bot have got item
             # self.previous_pose = self.pose
+            if not self.grabbed_item.holding_item:
+                self.state = State.SCOUTING
             self.state = State.HOMING
-            
+        
+    def obstacle_detection(self):
+        if self.scan_triggered[SCAN_LEFT] or self.scan_triggered[SCAN_RIGHT]:
+            self.previous_yaw = self.yaw
+            self.state = State.TURNING
+            self.turn_angle = 6
+
+            if self.scan_triggered[SCAN_LEFT] and self.scan_triggered[SCAN_RIGHT]:
+                self.turn_angle = 135
+                self.turn_direction = random.choice([TURN_LEFT, TURN_RIGHT])
+                self.get_logger().info("Detected obstacle to both the left and right, turning " + ("left" if self.turn_direction == TURN_LEFT else "right") + f" by {self.turn_angle:.2f} degrees")
+            elif self.scan_triggered[SCAN_LEFT]:
+                self.turn_direction = TURN_RIGHT
+                self.get_logger().info(f"Detected obstacle to the left, turning right by {self.turn_angle} degrees")
+            else: # self.scan_triggered[SCAN_RIGHT]
+                self.turn_direction = TURN_LEFT
+                self.get_logger().info(f"Detected obstacle to the right, turning left by {self.turn_angle} degrees")
+            return True
+    
+    def turn(self):
+        if len(self.fov_items.data) != 0:
+            self.state = State.COLLECTING
+        
+        msg = Twist()
+        msg.angular.z = self.turn_direction * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL
+        self.cmd_vel_publisher.publish(msg)    
+        
+        self.logger.info(f"Turning {self.turn_direction * self.turn_angle:.2f} degrees")
+        
+        self.goal_distance = random.uniform(0.125, 0.175)
+        self.state = State.FORWARD
+        
+        # yaw_difference = angles.normalize_angle(self.yaw - self.previous_yaw)                
+
+        # if math.fabs(yaw_difference) >= math.radians(self.turn_angle):
+        #     self.previous_pose = self.pose
+        #     self.goal_distance = random.uniform(0.3, 0.9)
+        #     self.state = State.FORWARD
+        #     self.get_logger().info(f"Finished turning, driving forward by {self.goal_distance:.2f} metres")
+
+    def forward(self):
+        # if len(self.fov_items.data) != 0:
+        #     self.state = State.COLLECTING
+        
+        msg = Twist()
+        msg.linear.x = LINEAR_VELOCITY
+        self.cmd_vel_publisher.publish(msg)
+        
+        self.logger.info(f"Driving forward by {self.goal_distance:.2f} metres")
+
+        difference_x = self.pose.position.x - self.previous_pose.position.x
+        difference_y = self.pose.position.y - self.previous_pose.position.y
+        distance_travelled = math.sqrt(difference_x ** 2 + difference_y ** 2)
+        
+        if distance_travelled >= self.goal_distance:
+            self.state = State.SCOUTING
+            self.logger.info(f"Finished driving forward by {self.goal_distance:.2f} metres")
+
+    
     def control_loop(self):
         match self.state:
             case State.SCOUTING:
+                # self.obstacle_detection()
                 self.scout()
             case State.COLLECTING:
+                if self.obstacle_detection():
+                    return
                 self.collect()
             case State.GRABBING:
                 self.grab()
@@ -269,6 +349,12 @@ class RobotController(Node):
                         self.logger.info('Goal was canceled.')
                         self.state = State.SCOUTING
                     # self.logger.info(f"Moving to goal, current state: {self.state}")
+            case State.TURNING:
+                self.turn()
+            case State.FORWARD:
+                self.forward()
+                if self.obstacle_detection():
+                    return
         
 
     def destroy_node(self):
@@ -305,8 +391,6 @@ def main(args=None):
     rclpy.init(args = args, signal_handler_options = SignalHandlerOptions.NO)
 
     node = RobotController()
-    
-    executor = MultiThreadedExecutor()
 
     try:
         rclpy.spin(node)
