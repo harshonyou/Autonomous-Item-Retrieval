@@ -21,23 +21,27 @@ from tf_transformations import euler_from_quaternion
 
 import angles
 
-
+# Default Pose Orientation
 DEFAULT_POSE_ORIENTATION_Z = 0.0
 DEFAULT_POSE_ORIENTATION_W = 0.99
 
+# Turning
 TURN_LEFT = -1
 TURN_RIGHT = 1
 
+# Robot Movement
 LINEAR_VELOCITY = 0.11 # 0.3
 ANGULAR_VELOCITY = 0.75 # 0.5
 DISTANCE_PROPRTIONAL = 0.5
 
+# LiDAR Scan Segments
 SCAN_THRESHOLD = 0.5
 SCAN_FRONT = 0
 SCAN_LEFT = 1
 SCAN_BACK = 2
 SCAN_RIGHT = 3
 
+# Different potential states for the robot
 class State(Enum):
     SCOUTING = 0
     COLLECTING = 1
