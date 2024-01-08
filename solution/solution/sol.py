@@ -9,10 +9,12 @@ from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 from geometry_msgs.msg import PoseStamped, Pose, Twist
 from rclpy.parameter import Parameter
-from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import LaserScan, CameraInfo
 from assessment_interfaces.msg import ItemList, Item, HomeZone, ItemHolders, ItemHolder
 from rclpy.qos import QoSPresetProfiles
 from nav_msgs.msg import Odometry
+from image_geometry import PinholeCameraModel
+
 
 from tf_transformations import euler_from_quaternion
 
@@ -53,6 +55,13 @@ class RobotController(Node):
         
         # Logger
         self.logger = self.get_logger()
+        
+        # Camera Properties
+        self.camera_model:PinholeCameraModel = camera_model()
+        self.h_fov = 1.085595
+        self.camera_pos_gazebo = (0.076, 0.0, 0.093)
+        self.actual_radius = 0.075
+        self.actual_diameter = self.actual_radius * 2
         
         # NAV2
         self.navigator = BasicNavigator(namespace='robot1')
@@ -121,11 +130,10 @@ class RobotController(Node):
         
         self.yaw = yaw
     
-    def fov_items_callback(self, msg):
+    def fov_items_callback(self, msg):            
         self.fov_items = msg
     
     def garbbed_item_callback(self, msg):
-        self.logger.info(f"{msg.data}, {self.grabbed_item}")
         for item_holder in msg.data:
             if item_holder.robot_id == "robot1":
                 self.grabbed_item = item_holder
@@ -197,17 +205,22 @@ class RobotController(Node):
             return w_value * item.value / 15.0 + w_diameter * item.diameter / 640.0
         
         item = max(self.fov_items.data, key=custom_key)
-
-        estimated_distance = 69.0 * float(item.diameter) ** -0.89
         
-        if estimated_distance < 0.3:
+        diameter_pixels = item.diameter
+        scale_factor = self.actual_diameter / diameter_pixels
+        focal_length = self.camera_model.fx()
+        
+        Z_camera = focal_length * scale_factor
+        Z_world = Z_camera + self.camera_pos_gazebo[2]
+        
+        if Z_world < 0.3:
             self.previous_pose = self.pose
             self.goal_distance = 0.15
             self.state = State.GRABBING
             return
 
         msg = Twist()
-        msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * estimated_distance
+        msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * Z_world
         msg.angular.z = item.x / 320.0
 
         self.cmd_vel_publisher.publish(msg)
@@ -255,12 +268,37 @@ class RobotController(Node):
                         self.navigator.cancelTask()
                         self.logger.info('Goal was canceled.')
                         self.state = State.SCOUTING
-                    self.logger.info(f"Moving to goal, current state: {self.state}")
+                    # self.logger.info(f"Moving to goal, current state: {self.state}")
         
 
     def destroy_node(self):
         super().destroy_node()
 
+def camera_model():
+    camera_info = CameraInfo()
+
+    camera_info.height = 480
+    camera_info.width = 640
+
+    camera_info.distortion_model = "plumb_bob"
+    camera_info.d = [0.0, 0.0, 0.0, 0.0, 0.0]
+
+    camera_info.k = [530.4669406576809, 0.0, 320.5, 0.0, 530.4669406576809, 240.5, 0.0, 0.0, 1.0]
+    camera_info.r = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    camera_info.p = [530.4669406576809, 0.0, 320.5, -0.0, 0.0, 530.4669406576809, 240.5, 0.0, 0.0, 0.0, 1.0, 0.0]
+
+    camera_info.binning_x = 0
+    camera_info.binning_y = 0
+    camera_info.roi.x_offset = 0
+    camera_info.roi.y_offset = 0
+    camera_info.roi.height = 0
+    camera_info.roi.width = 0
+    camera_info.roi.do_rectify = False
+    
+    camera_model = PinholeCameraModel()
+    camera_model.fromCameraInfo(camera_info)
+    
+    return camera_model
 
 def main(args=None):
 
