@@ -32,7 +32,7 @@ LINEAR_VELOCITY = 0.11 # 0.3
 ANGULAR_VELOCITY = 0.75 # 0.5
 DISTANCE_PROPRTIONAL = 0.5
 
-SCAN_THRESHOLD = 0.45
+SCAN_THRESHOLD = 0.5
 SCAN_FRONT = 0
 SCAN_LEFT = 1
 SCAN_BACK = 2
@@ -92,6 +92,7 @@ class RobotController(Node):
         
         # Scouting
         self.scout_ts = self.get_clock().now()
+        self.scout_direction = TURN_LEFT
         
         # Grabbed Item
         self.grabbed_item = ItemHolder()
@@ -99,6 +100,7 @@ class RobotController(Node):
         # Obstacle Avoidance
         self.turn_angle = 0.0
         self.turn_direction = TURN_LEFT
+        
 
         # Subscribers
         self.odom_subscriber = self.create_subscription(
@@ -130,9 +132,15 @@ class RobotController(Node):
         # Publishers
         self.cmd_vel_publisher = self.create_publisher(Twist, '/robot1/cmd_vel', 10)
         
-        self.state = State.SCOUTING
+        self.set_state(State.SCOUTING)
         self.timer_period = 0.1 # 100 milliseconds = 10 Hz
         self.timer = self.create_timer(self.timer_period, self.control_loop)
+    
+    def set_state(self, state):
+        match state:
+            case State.SCOUTING:
+                self.state = State.SCOUTING
+                self.scout_direction = TURN_LEFT if random.random() > 0.5 else TURN_RIGHT
     
     def odom_callback(self, msg):
         self.pose = msg.pose.pose
@@ -206,7 +214,7 @@ class RobotController(Node):
         
         cmd = Twist()
         cmd.linear.x = 0.0
-        cmd.angular.z = ANGULAR_VELOCITY
+        cmd.angular.z = ANGULAR_VELOCITY * self.scout_direction
         self.cmd_vel_publisher.publish(cmd)
     
     def collect(self):
@@ -254,14 +262,14 @@ class RobotController(Node):
         if distance_travelled >= self.goal_distance: #check if the bot have got item
             # self.previous_pose = self.pose
             if not self.grabbed_item.holding_item:
-                self.state = State.SCOUTING
+                self.set_state(State.SCOUTING)
             self.state = State.HOMING
         
     def obstacle_detection(self):
         if self.scan_triggered[SCAN_LEFT] or self.scan_triggered[SCAN_RIGHT]:
             self.previous_yaw = self.yaw
             self.state = State.TURNING
-            self.turn_angle = 6
+            self.turn_angle = 5 # 5
 
             if self.scan_triggered[SCAN_LEFT] and self.scan_triggered[SCAN_RIGHT]:
                 self.turn_angle = 135
@@ -285,7 +293,7 @@ class RobotController(Node):
         
         self.logger.info(f"Turning {self.turn_direction * self.turn_angle:.2f} degrees")
         
-        self.goal_distance = random.uniform(0.125, 0.175)
+        self.goal_distance = random.uniform(0.075, 0.125) # random.uniform(0.125, 0.175)
         self.state = State.FORWARD
         
         # yaw_difference = angles.normalize_angle(self.yaw - self.previous_yaw)                
@@ -301,7 +309,7 @@ class RobotController(Node):
         #     self.state = State.COLLECTING
         
         msg = Twist()
-        msg.linear.x = LINEAR_VELOCITY
+        msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL
         self.cmd_vel_publisher.publish(msg)
         
         self.logger.info(f"Driving forward by {self.goal_distance:.2f} metres")
@@ -311,7 +319,7 @@ class RobotController(Node):
         distance_travelled = math.sqrt(difference_x ** 2 + difference_y ** 2)
         
         if distance_travelled >= self.goal_distance:
-            self.state = State.SCOUTING
+            self.set_state(State.SCOUTING)
             self.logger.info(f"Finished driving forward by {self.goal_distance:.2f} metres")
 
     
@@ -333,21 +341,22 @@ class RobotController(Node):
                     result = self.navigator.getResult()
                     if result == TaskResult.SUCCEEDED:
                         self.logger.info('Reached the goal successfully.')
-                        self.state = State.SCOUTING
+                        self.set_state(State.SCOUTING)
                     elif result == TaskResult.CANCELED:
                         self.logger.info('Goal was canceled.')
-                        self.state = State.SCOUTING
+                        self.set_state(State.SCOUTING)
                     elif result == TaskResult.FAILED:
                         self.logger.info('Goal failed.')
-                        self.state = State.SCOUTING
+                        self.set_state(State.SCOUTING)
                     else:
                         self.logger.info('Goal has an invalid return status.')
-                        self.state = State.SCOUTING
+                        self.set_state(State.SCOUTING)
                 else:
                     if self.fn():
                         self.navigator.cancelTask()
                         self.logger.info('Goal was canceled.')
-                        self.state = State.SCOUTING
+                        self.set_state(State.SCOUTING)
+                    self.obstacle_detection()
                     # self.logger.info(f"Moving to goal, current state: {self.state}")
             case State.TURNING:
                 self.turn()
