@@ -104,24 +104,25 @@ class RobotController(Node):
         # Obstacle Avoidance
         self.turn_angle = 0.0
         self.turn_direction = TURN_LEFT
+        self.enroute_home = False
         
 
         # Subscribers
         self.odom_subscriber = self.create_subscription(
             Odometry,
-            '/robot1/odom',
+            'odom',
             self.odom_callback,
             10)
         
         self.lidiar_subscriber = self.create_subscription(
             LaserScan,
-            '/robot1/scan',
+            'scan',
             self.lidar_callback,
             QoSPresetProfiles.SENSOR_DATA.value)
         
         self.fov_items_subscriber = self.create_subscription(
             ItemList,
-            '/robot1/items',
+            'items',
             self.fov_items_callback,
             10
         )
@@ -134,11 +135,13 @@ class RobotController(Node):
         )
         
         # Publishers
-        self.cmd_vel_publisher = self.create_publisher(Twist, '/robot1/cmd_vel', 10)
+        self.cmd_vel_publisher = self.create_publisher(Twist, 'cmd_vel', 10)
+        # self.camdar_publisher = self.create_publisher(LaserScan, 'updated_scan', 10)
         
         self.set_state(State.SCOUTING)
         self.timer_period = 0.1 # 100 milliseconds = 10 Hz
-        self.timer = self.create_timer(self.timer_period, self.control_loop)
+        self.controller_timer = self.create_timer(self.timer_period, self.control_loop)
+        # self.camdar_timer = self.create_timer(self.timer_period, self.camdar_loop)
     
     def set_state(self, state):
         match state:
@@ -170,16 +173,12 @@ class RobotController(Node):
         left_ranges  = msg.ranges[314:359]
         right_ranges = msg.ranges[0:45]
         
-        # front_ranges = msg.ranges[331:359] + msg.ranges[0:30] # 30 to 331 degrees (30 to -30 degrees)
-        # left_ranges  = msg.ranges[31:90] # 31 to 90 degrees (31 to 90 degrees)
-        # back_ranges  = msg.ranges[91:270] # 91 to 270 degrees (91 to -90 degrees)
-        # right_ranges = msg.ranges[271:330] # 271 to 330 degrees (-30 to -91 degrees)
-
-        # Store True/False values for each sensor segment, based on whether the nearest detected obstacle is closer than SCAN_THRESHOLD
-        # self.scan_triggered[SCAN_FRONT] = min(front_ranges) < SCAN_THRESHOLD 
-        self.scan_triggered[SCAN_LEFT]  = min(left_ranges)  < SCAN_THRESHOLD
-        # self.scan_triggered[SCAN_BACK]  = min(back_ranges)  < SCAN_THRESHOLD
-        self.scan_triggered[SCAN_RIGHT] = min(right_ranges) < SCAN_THRESHOLD
+        threshold = SCAN_THRESHOLD
+        if self.enroute_home:
+            threshold = 0.275
+        
+        self.scan_triggered[SCAN_LEFT]  = min(left_ranges)  < threshold
+        self.scan_triggered[SCAN_RIGHT] = min(right_ranges) < threshold
     
     def set_initial_pose(self):
         initial_pose = PoseStamped()
@@ -193,6 +192,7 @@ class RobotController(Node):
         self.navigator.waitUntilNav2Active()
         
     def go_home(self):
+        self.enroute_home = True
         self.fn = lambda: not self.grabbed_item.holding_item
         self.go_to_pose(self.initial_x, self.initial_y)
         
@@ -271,6 +271,9 @@ class RobotController(Node):
         
     def obstacle_detection(self):
         if self.scan_triggered[SCAN_LEFT] or self.scan_triggered[SCAN_RIGHT]:
+            self.logger.info(f"Enroute? {self.enroute_home} {self.state}")
+            self.cmd_vel_publisher.publish(Twist())
+            
             self.previous_yaw = self.yaw
             self.state = State.TURNING
             self.turn_angle = 5 # 5
@@ -290,6 +293,9 @@ class RobotController(Node):
     def turn(self):
         if len(self.fov_items.data) != 0:
             self.state = State.COLLECTING
+        
+        if self.enroute_home:
+            self.state = State.HOMING
         
         msg = Twist()
         msg.angular.z = self.turn_direction * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL
@@ -323,8 +329,10 @@ class RobotController(Node):
         distance_travelled = math.sqrt(difference_x ** 2 + difference_y ** 2)
         
         if distance_travelled >= self.goal_distance:
-            self.set_state(State.SCOUTING)
             self.logger.info(f"Finished driving forward by {self.goal_distance:.2f} metres")
+            self.set_state(State.SCOUTING)
+            if self.enroute_home:
+                self.state = State.HOMING
 
     
     def control_loop(self):
@@ -342,6 +350,7 @@ class RobotController(Node):
                 self.go_home()
             case State.MOVING_TO_GOAL:  # New case for MOVING_TO_GOAL state
                 if self.navigator.isTaskComplete():
+                    self.enroute_home = False
                     result = self.navigator.getResult()
                     if result == TaskResult.SUCCEEDED:
                         self.logger.info('Reached the goal successfully.')
@@ -358,9 +367,10 @@ class RobotController(Node):
                 else:
                     if self.fn():
                         self.navigator.cancelTask()
-                        self.logger.info('Goal was canceled.')
-                        self.set_state(State.SCOUTING)
-                    self.obstacle_detection()
+                        self.logger.info(f"Fn returned true, cancelling task.")
+                    elif self.obstacle_detection():
+                        self.navigator.cancelTask()
+                        self.previous_state = State.HOMING
                     # self.logger.info(f"Moving to goal, current state: {self.state}")
             case State.TURNING:
                 self.turn()
@@ -368,6 +378,9 @@ class RobotController(Node):
                 self.forward()
                 if self.obstacle_detection():
                     return
+    
+    # def camdar_loop(self):
+    #     pass
         
 
     def destroy_node(self):
