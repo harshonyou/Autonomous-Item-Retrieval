@@ -15,6 +15,7 @@ from assessment_interfaces.msg import ItemList, Item, HomeZone, ItemHolders, Ite
 from rclpy.qos import QoSPresetProfiles
 from nav_msgs.msg import Odometry
 from image_geometry import PinholeCameraModel
+from std_msgs.msg import Header, Bool
 
 
 from tf_transformations import euler_from_quaternion
@@ -106,6 +107,8 @@ class RobotController(Node):
         self.turn_direction = TURN_LEFT
         self.enroute_home = False
         
+        # Halt
+        self.halted = False
 
         # Subscribers
         self.odom_subscriber = self.create_subscription(
@@ -127,6 +130,13 @@ class RobotController(Node):
             10
         )
         
+        self.halt_subscriber = self.create_subscription(
+            Bool,
+            'halt',
+            self.halt_callback,
+            10
+        )
+        
         self.garbbed_item_subscriber = self.create_subscription(
             ItemHolders,
             '/item_holders',
@@ -143,7 +153,7 @@ class RobotController(Node):
         self.controller_timer = self.create_timer(self.timer_period, self.control_loop)
         # self.camdar_timer = self.create_timer(self.timer_period, self.camdar_loop)
     
-    def set_state(self, state):
+    def set_state(self, state): # Add markers and default states TODO
         match state:
             case State.SCOUTING:
                 self.state = State.SCOUTING
@@ -161,13 +171,19 @@ class RobotController(Node):
     
     def fov_items_callback(self, msg):            
         self.fov_items = msg
+        self.fov_items.data = [item for item in self.fov_items.data if item.y >= 2 and item.y <= 4]
     
     def garbbed_item_callback(self, msg):
         for item_holder in msg.data:
             if item_holder.robot_id == "robot1":
                 self.grabbed_item = item_holder
                 break
-
+            
+    def halt_callback(self, msg):
+        if msg.data:
+            self.halted = True
+        else:
+            self.halted = False
     
     def lidar_callback(self, msg):
         left_ranges  = msg.ranges[314:359]
@@ -336,6 +352,10 @@ class RobotController(Node):
 
     
     def control_loop(self):
+        if self.halted:
+            self.cmd_vel_publisher.publish(Twist())
+            return
+        
         match self.state:
             case State.SCOUTING:
                 # self.obstacle_detection()
