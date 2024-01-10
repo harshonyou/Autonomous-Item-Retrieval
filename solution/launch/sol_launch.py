@@ -51,7 +51,7 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'visualise_sensors': 'false',
             'obstacles': 'true',
-            'num_robots': '2',
+            'num_robots': '3',
             'use_nav2': 'true',
             'rviz_config': '/home/aei/auro/src/assessment/rviz/namespaced_nav2.rviz',
             'params_file': '/home/aei/auro/src/solution/params/sol.yml',
@@ -59,7 +59,7 @@ def generate_launch_description():
     )
     
     x_pose = LaunchConfiguration('x_pose', default='-3.5')
-    y_pose = LaunchConfiguration('y_pose', default='1.0')
+    y_pose = LaunchConfiguration('y_pose', default='0.0')
     neg_y_pose = LaunchConfiguration('y_pose', default='-1.0')
     
     y1_pose = LaunchConfiguration('y_pose', default='2.0')
@@ -157,7 +157,7 @@ def generate_launch_description():
         executable='sol',
         name='sol2',
         namespace='robot2',
-        parameters=[{'use_sim_time': use_sim_time, 'x_pose': x_pose, 'y_pose': neg_y_pose}],
+        parameters=[{'use_sim_time': use_sim_time, 'x_pose': x_pose, 'y_pose': y2_pose}],
     )
     
     fusion3=Node(
@@ -186,6 +186,14 @@ def generate_launch_description():
         namespace='robot3',
     )
     
+    marker3=Node(
+        package='solution',
+        output='screen',
+        executable='marker',
+        name='marker3',
+        namespace='robot3',
+    )
+    
     sol3=Node(
         package='solution',
         output='screen',
@@ -205,7 +213,7 @@ def generate_launch_description():
     ld.add_action(fusion)
     ld.add_action(cloud)
     ld.add_action(vis_lidar)
-    # ld.add_action(marker)
+    ld.add_action(marker)
     ld.add_action(sol)
     
     # ld.add_action(fusion2)
@@ -217,6 +225,7 @@ def generate_launch_description():
     # ld.add_action(fusion3)
     # ld.add_action(cloud3)
     # ld.add_action(vis_lidar3)
+    # ld.add_action(marker3)
     # ld.add_action(sol3)
     
 
