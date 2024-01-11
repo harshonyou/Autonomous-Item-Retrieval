@@ -22,7 +22,6 @@ from auro_interfaces.msg import StringWithPose
 from tf_transformations import euler_from_quaternion
 
 import angles
-
 # Default Pose Orientation
 DEFAULT_POSE_ORIENTATION_Z = 0.0
 DEFAULT_POSE_ORIENTATION_W = 0.99
@@ -49,9 +48,8 @@ class State(Enum):
     COLLECTING = 1
     GRABBING = 2
     HOMING = 3
-    MOVING_TO_GOAL = 4
-    TURNING = 5
-    FORWARD = 6
+    TURNING = 4
+    FORWARD = 5
     
 # Camera Properties
 H_FOV = 1.085595
@@ -64,7 +62,8 @@ class RobotController(Node):
     def __init__(self):
         # super().__init__('robot_controller', namespace='robot1', parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
         # super().__init__(self.get_name() + '_node')
-        super().__init__('robot_controller')
+        super().__init__('robot_controller')        
+        self.robot_name = self.get_namespace().replace('/', '').strip()
 
         # Initial Pose
         self.declare_parameter('x_pose', 0.0)
@@ -163,10 +162,17 @@ class RobotController(Node):
         # self.camdar_timer = self.create_timer(self.timer_period, self.camdar_loop)
     
     def set_state(self, state): # Add markers and default states TODO
+        self.state = state
+        self.logger.info(f"State set to {state}")
+        
         match state:
             case State.SCOUTING:
-                self.state = State.SCOUTING
                 self.scout_direction = TURN_LEFT if random.random() > 0.5 else TURN_RIGHT
+            case State.HOMING:
+                self.enroute_home = True
+                self.go_to_pose(self.initial_x, self.initial_y)
+            case _:
+                self.logger.info(f"WTF: {state}")
     
     def odom_callback(self, msg):
         self.pose = msg.pose.pose
@@ -184,7 +190,7 @@ class RobotController(Node):
     
     def garbbed_item_callback(self, msg):
         for item_holder in msg.data:
-            if item_holder.robot_id == "robot1":
+            if item_holder.robot_id == self.robot_name:
                 self.grabbed_item = item_holder
                 break
             
@@ -219,12 +225,9 @@ class RobotController(Node):
         self.navigator.setInitialPose(initial_pose)
         self.navigator.waitUntilNav2Active()
         
-    def go_home(self):
-        self.enroute_home = True
-        self.fn = lambda: not self.grabbed_item.holding_item
-        self.go_to_pose(self.initial_x, self.initial_y)
-        
     def go_to_pose(self, x, y):
+        self.logger.info(f"Robot {self.robot_name} is going to pose ({x:.2f}, {y:.2f})")
+        
         goal_pose = PoseStamped()
         goal_pose.header.frame_id = 'map'
         goal_pose.header.stamp = self.navigator.get_clock().now().to_msg()
@@ -234,8 +237,8 @@ class RobotController(Node):
         goal_pose.pose.orientation.w = DEFAULT_POSE_ORIENTATION_W
         
         self.navigator.goToPose(goal_pose)
-        self.state = State.MOVING_TO_GOAL
         
+        self.logger.info(f"go_to_pose: State set to {self.state}")
 
     def scout(self):
         # if self.get_clock().now() - self.scout_ts > 10:
@@ -253,7 +256,7 @@ class RobotController(Node):
         if len(self.fov_items.data) == 0:
             # self.previous_pose = self.pose
             # self.state = State.FORWARD
-            self.state = State.HOMING
+            self.set_state(State.HOMING) # State.HOMING
             return
 
         w_value = 1.0
@@ -293,13 +296,15 @@ class RobotController(Node):
 
         if distance_travelled >= self.goal_distance: #check if the bot have got item
             # self.previous_pose = self.pose
+            self.logger.info(f"Grabbed item, drived forward by {self.goal_distance:.2f} metres")
             if not self.grabbed_item.holding_item:
+                self.logger.info(f"Robot {self.get_namespace()} has lost its item, returning to scouting state")
                 self.set_state(State.SCOUTING)
-            self.state = State.HOMING
+            self.logger.info(f"Robot {self.get_namespace()} has grabbed its item, returning to home")
+            self.set_state(State.HOMING) # State.HOMING
         
     def obstacle_detection(self):
         if self.scan_triggered[SCAN_LEFT] or self.scan_triggered[SCAN_RIGHT]:
-            self.logger.info(f"Enroute? {self.enroute_home} {self.state}")
             self.cmd_vel_publisher.publish(Twist())
             
             self.previous_yaw = self.yaw
@@ -317,13 +322,13 @@ class RobotController(Node):
                 self.turn_direction = TURN_LEFT
                 self.get_logger().info(f"Detected obstacle to the right, turning left by {self.turn_angle} degrees")
             return True
+        
+        return False
     
     def turn(self):
+        # TODO: move this to forward
         if len(self.fov_items.data) != 0:
             self.state = State.COLLECTING
-        
-        if self.enroute_home:
-            self.state = State.HOMING
         
         msg = Twist()
         msg.angular.z = self.turn_direction * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL
@@ -360,7 +365,7 @@ class RobotController(Node):
             self.logger.info(f"Finished driving forward by {self.goal_distance:.2f} metres")
             self.set_state(State.SCOUTING)
             if self.enroute_home:
-                self.state = State.HOMING
+                self.set_state(State.HOMING) # State.HOMING
 
     
     def control_loop(self):
@@ -383,31 +388,26 @@ class RobotController(Node):
                 self.collect()
             case State.GRABBING:
                 self.grab()
-            case State.HOMING:
-                self.go_home()
-            case State.MOVING_TO_GOAL:  # New case for MOVING_TO_GOAL state
+            case State.HOMING:  # New case for MOVING_TO_GOAL state
                 if self.navigator.isTaskComplete():
                     self.enroute_home = False
+                    self.set_state(State.SCOUTING)
+                    
                     result = self.navigator.getResult()
                     if result == TaskResult.SUCCEEDED:
-                        self.logger.info('Reached the goal successfully.')
-                        self.set_state(State.SCOUTING)
+                        self.logger.info('Reached home zone')
                     elif result == TaskResult.CANCELED:
-                        self.logger.info('Goal was canceled.')
-                        self.set_state(State.SCOUTING)
+                        self.logger.info(f'Goal canceled')
                     elif result == TaskResult.FAILED:
-                        self.logger.info('Goal failed.')
-                        self.set_state(State.SCOUTING)
+                        self.logger.info(f'Goal failed')
                     else:
-                        self.logger.info('Goal has an invalid return status.')
-                        self.set_state(State.SCOUTING)
+                        self.logger.info(f'Unknown result: {result}')
                 else:
-                    if self.fn():
+                    if not self.grabbed_item.holding_item:
                         self.navigator.cancelTask()
-                        self.logger.info(f"Fn returned true, cancelling task.")
+                        self.logger.info(f'Robot {self.get_namespace()} has lost its item, returning to scouting state')
                     elif self.obstacle_detection():
                         self.navigator.cancelTask()
-                        self.previous_state = State.HOMING
                     # self.logger.info(f"Moving to goal, current state: {self.state}")
             case State.TURNING:
                 self.turn()
