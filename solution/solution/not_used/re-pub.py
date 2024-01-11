@@ -8,6 +8,8 @@ from image_geometry import PinholeCameraModel
 import numpy as np
 import math
 
+# This Python script creates a ROS2 node named SimpleLaserScanRepublisher in the "robot1" namespace. It subscribes to two topics: 'items' (an ItemList message type) and 'scan' (a LaserScan message type). The node integrates detected items' positions from the camera's field of view into the laser scan data. It calculates the depth array from camera image coordinates and updates the LaserScan data with these values, republishing the modified LaserScan on the 'updated_scan' topic. The script includes functions for setting up a camera model, converting image coordinates to depth values, and processing item and scan data.
+
 def camera_model():
     camera_info = CameraInfo()
 

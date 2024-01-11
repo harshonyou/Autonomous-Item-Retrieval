@@ -8,7 +8,7 @@ from rclpy.executors import ExternalShutdownException
 class RobotController(Node):
 
     def __init__(self):
-        super().__init__('robot_controller')
+        super().__init__('robot_controller', namespace='robot1')
 
         self.declare_parameter('x', 0.0)
         self.declare_parameter('y', 0.0)

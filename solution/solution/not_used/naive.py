@@ -10,14 +10,14 @@ from rclpy.signals import SignalHandlerOptions
 from rclpy.executors import ExternalShutdownException
 from rclpy.qos import QoSPresetProfiles
 
-from geometry_msgs.msg import Twist, Pose
+from geometry_msgs.msg import Twist, Pose, Quaternion
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 # from auro_interfaces.msg import StringWithPose, Item, ItemList
 from assessment_interfaces.msg import ItemList, Item, HomeZone, ItemHolders
 from auro_interfaces.msg import StringWithPose
 
-from tf_transformations import euler_from_quaternion
+# from tf_transformations import euler_from_quaternion
 import angles
 
 LINEAR_VELOCITY  = 0.3 # Metres per second
@@ -44,6 +44,25 @@ class State(Enum):
     SEARCHING = 4
     HOMING = 5
 
+
+def get_euler_from_quaternion(quaternion):
+        x = quaternion.x
+        y = quaternion.y
+        z = quaternion.z
+        w = quaternion.w
+
+        sinr_cosp = 2 * (w * x + y * z)
+        cosr_cosp = 1 - 2 * (x * x + y * y)
+        roll = math.atan2(sinr_cosp, cosr_cosp)
+
+        sinp = 2 * (w * y - z * x)
+        pitch = math.asin(sinp)
+
+        siny_cosp = 2 * (w * z + x * y)
+        cosy_cosp = 1 - 2 * (y * y + z * z)
+        yaw = math.atan2(siny_cosp, cosy_cosp)
+
+        return roll, pitch, yaw
 
 # Missing features:
 # Prone to drift
@@ -138,10 +157,7 @@ class RobotController(Node):
         # https://github.com/DLu/tf_transformations
         #
         # Roll (rotation around X axis) and pitch (rotation around Y axis) are discarded
-        (roll, pitch, yaw) = euler_from_quaternion([self.pose.orientation.x,
-                                                    self.pose.orientation.y,
-                                                    self.pose.orientation.z,
-                                                    self.pose.orientation.w])
+        (roll, pitch, yaw) = get_euler_from_quaternion(self.pose.orientation)
         
         self.yaw = yaw # Store the yaw in a class variable
 

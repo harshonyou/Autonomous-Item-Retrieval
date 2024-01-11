@@ -20,14 +20,17 @@ from rclpy.parameter import Parameter
 class RobotController(Node):
 
     def __init__(self):
-        # super().__init__('detect_ball_3d', namespace='robot1', parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
-        super().__init__('detect_ball_3d')
+        super().__init__('detect_ball_3d', namespace='robot1', parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
 
         self.get_logger().info('Detecting in 3D')
 
         self.ball2d_sub  = self.create_subscription(ItemList,"items",self.ball_rcv_callback, 10)
+        # self.ball3d_pub  = self.create_publisher(Point,"detected_ball_3d",1)
+        # self.ball_marker_pub  = self.create_publisher(Marker,"ball_3d_marker",1)
+        # self.ball_cloud_pub = self.create_publisher(PointCloud, "/ball_3d_cloud", 1)
         self.ball_cloud_pub = self.create_publisher(PointCloud2, "ball_3d_cloud", 1)
 
+        # self.camera_frame = "robot1/camera_link"
         self.camera_frame = "camera_link"
         
         self.width = 640
@@ -71,6 +74,20 @@ class RobotController(Node):
             sphere_center_y = p.y = x
             sphere_center_z = p.z = 0.0
             
+            # self.get_logger().info(f"Ball 3D: {p}")
+            
+            # self.ball3d_pub.publish(p)
+            # cloud.points.append(p)
+            # sphere_radius = 0.075  # Adjust radius of the sphere as needed
+            # for phi in np.linspace(0, math.pi, 10):  # Adjust granularity
+            #     for theta in np.linspace(0, 2 * math.pi, 20):  # Adjust granularity
+            #         dx = sphere_radius * math.sin(phi) * math.cos(theta)
+            #         dy = sphere_radius * math.sin(phi) * math.sin(theta)
+            #         dz = sphere_radius * math.cos(phi)
+
+            #         p = Point32()
+            #         p.x, p.y, p.z = sphere_center_x + dx, sphere_center_y + dy, sphere_center_z + dz
+            #         cloud.points.append(p)
             sphere_radius = 0.075  # Adjust radius of the sphere as needed
             if item.colour == "RED":
                 r, g, b = 0, 0, 0
@@ -89,6 +106,35 @@ class RobotController(Node):
                     # Append each point to the points list
                     points.append([sphere_center_x + dx, sphere_center_y + dy, sphere_center_z + dz, rgb])
 
+            # m = Marker()
+            # m.header.frame_id = self.camera_frame
+
+            # m.id = i
+            # m.type = Marker.SPHERE
+            # m.action = Marker.ADD
+            # m.pose.position.x = z
+            # m.pose.position.y = x
+            # m.pose.position.z = 0.0
+            # m.scale.x = self.ball_radius*2
+            # m.scale.y = self.ball_radius*2
+            # m.scale.z = self.ball_radius*2
+            # m.color.r = 0.933
+            # m.color.g = 1.0
+            # m.color.b = 0.0
+            # m.color.a = 1.0
+            
+            # delete_marker = Marker()
+            # delete_marker.header.frame_id = "your_frame_id"  # same frame_id as your markers
+            # delete_marker.id = i - 1  # ID of the marker to delete
+            # delete_marker.action = Marker.DELETE
+            # publisher.publish(delete_marker)
+
+            # self.ball_marker_pub.publish(m)
+            
+        # data = Point()
+        # data.x = float(/320.0)
+        # data.y = float(item.y/240.0)
+        # data.z = float(item.diameter)
         
         # self.ball_cloud_pub.publish(cloud)
         header = Header()
@@ -104,6 +150,14 @@ class RobotController(Node):
 
         cloud = point_cloud2.create_cloud(header, fields, points)
         self.ball_cloud_pub.publish(cloud)
+        # self.get_logger().info(f"Ball 3D: {cloud}")
+        # print(m.pose.position)
+
+
+    def control_loop(self):
+        pass
+        # self.get_logger().info(f"Initial pose - x: {self.initial_x}, y: {self.initial_y}, yaw: {self.initial_yaw}")
+
 
     def destroy_node(self):
         super().destroy_node()

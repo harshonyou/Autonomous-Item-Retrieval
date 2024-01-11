@@ -7,8 +7,7 @@ import numpy as np
 
 class LaserScanToPointCloud(Node):
     def __init__(self):
-        # super().__init__('laserscan_to_pointcloud', namespace="robot1")
-        super().__init__('laserscan_to_pointcloud')
+        super().__init__('laserscan_to_pointcloud', namespace="robot1")
         self.subscription = self.create_subscription(
             LaserScan,
             'scan',

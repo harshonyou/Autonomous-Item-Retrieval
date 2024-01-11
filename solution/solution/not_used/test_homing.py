@@ -11,6 +11,8 @@ from nav_msgs.msg import Odometry
 from tf_transformations import euler_from_quaternion
 import angles
 
+# This Python script defines a ROS2 node for controlling a robot, implementing various methods to navigate it based on its position and orientation, using the Twist and Odometry messages from ROS geometry and navigation packages.
+
 class RobotController(Node):
 
     def __init__(self):

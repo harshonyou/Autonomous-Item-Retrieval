@@ -59,10 +59,10 @@ def uv_to_depth_array(u, diameter_pixels, z_value, image_width, h_fov):
 
     return depth_array
 
-class SimpleLaserScanRepublisher(Node):
+class SensorFusion(Node):
     def __init__(self):
         # super().__init__('simple_laser_scan_republisher', namespace="robot1", parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
-        super().__init__('simple_laser_scan_republisher')
+        super().__init__('sensor_fusion')
         self.items:ItemList = ItemList()
         self.camera_model:PinholeCameraModel = camera_model()
         self.h_fov = 1.085595  # Horizontal field of view in radians
@@ -91,7 +91,6 @@ class SimpleLaserScanRepublisher(Node):
         if len(self.items.data) == 0: # the rviz wont get updated if there are no items
             return
         
-        self.get_logger().info(f"Number of items: {len(self.items.data)}")
         depth_arrs = []
         
         for item in self.items.data:
@@ -130,7 +129,7 @@ class SimpleLaserScanRepublisher(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    laser_scan_republisher = SimpleLaserScanRepublisher()
+    laser_scan_republisher = SensorFusion()
     rclpy.spin(laser_scan_republisher)
     laser_scan_republisher.destroy_node()
     rclpy.shutdown()

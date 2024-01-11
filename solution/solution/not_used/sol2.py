@@ -17,7 +17,6 @@ from nav_msgs.msg import Odometry
 from image_geometry import PinholeCameraModel
 from std_msgs.msg import Header, Bool
 
-from auro_interfaces.msg import StringWithPose
 
 from tf_transformations import euler_from_quaternion
 
@@ -62,31 +61,25 @@ ACTUAL_DIAMETER = ACTUAL_RADIUS * 2
 class RobotController(Node):
 
     def __init__(self):
-        # super().__init__('robot_controller', namespace='robot1', parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
-        # super().__init__(self.get_name() + '_node')
-        super().__init__('robot_controller')
+        super().__init__('robot_controller2', namespace='robot2', parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
 
         # Initial Pose
-        self.declare_parameter('x_pose', 0.0)
-        self.declare_parameter('y_pose', 0.0)
+        self.declare_parameter('x', -3.5)
+        self.declare_parameter('y', -1.0)
         self.declare_parameter('yaw', 0.0)
 
-        self.initial_x = self.get_parameter('x_pose').get_parameter_value().double_value
-        self.initial_y = self.get_parameter('y_pose').get_parameter_value().double_value
+        self.initial_x = self.get_parameter('x').get_parameter_value().double_value
+        self.initial_y = self.get_parameter('y').get_parameter_value().double_value
         self.initial_yaw = self.get_parameter('yaw').get_parameter_value().double_value
         
         # Logger
         self.logger = self.get_logger()
         
-        self.logger.info(f"Initial Pose: {self.initial_x:.2f}, {self.initial_y:.2f}, {self.initial_yaw:.2f}")
-        
         # Camera Model
         self.camera_model:PinholeCameraModel = camera_model()
         
         # NAV2
-        self.navigator = BasicNavigator()
-        # self.navigator = BasicNavigator(namespace=self.get_namespace().replace('/', '').strip())
-        
+        self.navigator = BasicNavigator(namespace='robot2')
         self.set_initial_pose()
         self.fn = lambda: False
         
@@ -101,7 +94,6 @@ class RobotController(Node):
         
         # LiDAR
         self.scan_triggered = [False] * 4
-        self.triggered_distance = [0.0] * 4
         
         # Scouting
         self.scout_ts = self.get_clock().now()
@@ -154,7 +146,6 @@ class RobotController(Node):
         
         # Publishers
         self.cmd_vel_publisher = self.create_publisher(Twist, 'cmd_vel', 10)
-        self.marker_publisher = self.create_publisher(StringWithPose, 'raw_state_marker', 10)
         # self.camdar_publisher = self.create_publisher(LaserScan, 'updated_scan', 10)
         
         self.set_state(State.SCOUTING)
@@ -180,11 +171,10 @@ class RobotController(Node):
     
     def fov_items_callback(self, msg):            
         self.fov_items = msg
-        self.fov_items.data = [item for item in self.fov_items.data if item.y >= 2 and item.y <= 4]
     
     def garbbed_item_callback(self, msg):
         for item_holder in msg.data:
-            if item_holder.robot_id == "robot1":
+            if item_holder.robot_id == "robot2":
                 self.grabbed_item = item_holder
                 break
             
@@ -201,9 +191,6 @@ class RobotController(Node):
         threshold = SCAN_THRESHOLD
         if self.enroute_home:
             threshold = 0.275
-            
-        self.triggered_distance[SCAN_LEFT] = min(left_ranges)
-        self.triggered_distance[SCAN_RIGHT] = min(right_ranges)
         
         self.scan_triggered[SCAN_LEFT]  = min(left_ranges)  < threshold
         self.scan_triggered[SCAN_RIGHT] = min(right_ranges) < threshold
@@ -272,7 +259,7 @@ class RobotController(Node):
         
         if Z_world < 0.3:
             self.previous_pose = self.pose
-            self.goal_distance = 0.2
+            self.goal_distance = 0.15
             self.state = State.GRABBING
             return
 
@@ -364,11 +351,6 @@ class RobotController(Node):
 
     
     def control_loop(self):
-        marker_input = StringWithPose()
-        marker_input.text = str(self.state) # Visualise robot state as an RViz marker
-        marker_input.pose = self.pose # Set the pose of the RViz marker to track the robot's pose
-        self.marker_publisher.publish(marker_input)
-        
         if self.halted:
             self.cmd_vel_publisher.publish(Twist())
             return

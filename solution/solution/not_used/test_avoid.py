@@ -7,6 +7,8 @@ from rclpy.signals import SignalHandlerOptions
 from rclpy.executors import ExternalShutdownException
 from assessment_interfaces.msg import ItemList, Item
 
+# This Python script is a ROS2 node for a robot that subscribes to a list of items (such as balls) detected by a camera, and estimates their distances from the robot using the items' diameters in pixels and the known physical diameter of the items. It utilizes camera parameters and geometrical calculations for distance estimation.
+
 class RobotController(Node):
 
     def __init__(self):
