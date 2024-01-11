@@ -72,6 +72,7 @@ class TrafficManager(Node):
 
     def control_loop(self):
         """Main control loop for managing traffic."""
+        robots_to_halt = set()
         
         for i in range(1, self.num_robots + 1):
             for j in range(i + 1, self.num_robots + 1):
@@ -83,15 +84,22 @@ class TrafficManager(Node):
                 dy = self.odom_data[robot1_name].pose.pose.position.y - self.odom_data[robot2_name].pose.pose.position.y
                 distance = np.sqrt(dx ** 2 + dy ** 2)
 
-                # Halting robots if they are too close to each other
+                # If the distance is less than the safe distance, add the robot with the lower number (priority) to the halt set
                 if distance < SAFE_DISTANCE:
-                    self.get_logger().info(f"Distance between {robot1_name} and {robot2_name}: {distance}, Halting {robot1_name}")
-                    self.halt_publishers[robot1_name].publish(self.true)
-                    self.halt_publishers[robot2_name].publish(self.false)
-                else:
-                    self.halt_publishers[robot1_name].publish(self.false)
-                    self.halt_publishers[robot2_name].publish(self.false)
+                    robot_to_halt = robot1_name if i < j else robot2_name
+                    robots_to_halt.add(robot_to_halt)
+                    self.get_logger().info(f"Distance between {robot1_name} and {robot2_name}: {distance}, Halting {robot_to_halt}")
+
+        # Send halt commands
+        for robot_name in robots_to_halt:
+            self.halt_publishers[robot_name].publish(self.true)
         
+        # Ensure other robots are not halted
+        for i in range(1, self.num_robots + 1):
+            robot_name = f'robot{i}'
+            if robot_name not in robots_to_halt:
+                self.halt_publishers[robot_name].publish(self.false)
+            
         self.process_and_publish()
 
     def process_and_publish(self):
