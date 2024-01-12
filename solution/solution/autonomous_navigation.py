@@ -16,10 +16,9 @@ from rclpy.qos import QoSPresetProfiles
 from nav_msgs.msg import Odometry
 from image_geometry import PinholeCameraModel
 from std_msgs.msg import Header, Bool
+from rclpy.duration import Duration
 
-from auro_interfaces.msg import StringWithPose
-
-from tf_transformations import euler_from_quaternion
+from solution_interfaces.msg import StateMarker
 
 import angles
 # Default Pose Orientation
@@ -50,6 +49,7 @@ class State(Enum):
     HOMING = 3
     TURNING = 4
     FORWARD = 5
+    BACKWARD = 6
     
 # Camera Properties
 H_FOV = 1.085595
@@ -57,12 +57,10 @@ CAMERA_POS_GAZEBO = (0.076, 0.0, 0.093)
 ACTUAL_RADIUS = 0.075
 ACTUAL_DIAMETER = ACTUAL_RADIUS * 2
 
-class RobotController(Node):
+class AutonomousNavigation(Node):
 
     def __init__(self):
-        # super().__init__('robot_controller', namespace='robot1', parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
-        # super().__init__(self.get_name() + '_node')
-        super().__init__('robot_controller')        
+        super().__init__('autonomous_navigation')        
         self.robot_name = self.get_namespace().replace('/', '').strip()
 
         # Initial Pose
@@ -76,18 +74,15 @@ class RobotController(Node):
         
         # Logger
         self.logger = self.get_logger()
-        
-        self.logger.info(f"Initial Pose: {self.initial_x:.2f}, {self.initial_y:.2f}, {self.initial_yaw:.2f}")
+        self.logger.info(f"Initial Pose of Robot {self.robot_name}: ({self.initial_x:.2f}, {self.initial_y:.2f}), {self.initial_yaw:.2f}")
         
         # Camera Model
         self.camera_model:PinholeCameraModel = camera_model()
         
         # NAV2
         self.navigator = BasicNavigator()
-        # self.navigator = BasicNavigator(namespace=self.get_namespace().replace('/', '').strip())
-        
         self.set_initial_pose()
-        self.fn = lambda: False
+        self.log_counter = 0
         
         # Odom
         self.previous_pose = Pose()
@@ -153,34 +148,38 @@ class RobotController(Node):
         
         # Publishers
         self.cmd_vel_publisher = self.create_publisher(Twist, 'cmd_vel', 10)
-        self.marker_publisher = self.create_publisher(StringWithPose, 'raw_state_marker', 10)
-        # self.camdar_publisher = self.create_publisher(LaserScan, 'updated_scan', 10)
+        self.marker_publisher = self.create_publisher(StateMarker, 'raw_state_marker', 10)
         
         self.set_state(State.SCOUTING)
         self.timer_period = 0.1 # 100 milliseconds = 10 Hz
         self.controller_timer = self.create_timer(self.timer_period, self.control_loop)
-        # self.camdar_timer = self.create_timer(self.timer_period, self.camdar_loop)
     
     def set_state(self, state): # Add markers and default states TODO
         self.state = state
-        self.logger.info(f"State set to {state}")
+        self.logger.debug(f"State set to {state}")
         
         match state:
             case State.SCOUTING:
                 self.scout_direction = TURN_LEFT if random.random() > 0.5 else TURN_RIGHT
             case State.HOMING:
                 self.enroute_home = True
+                self.log_counter = 0
                 self.go_to_pose(self.initial_x, self.initial_y)
+            case State.GRABBING:
+                self.previous_pose = self.pose
+                self.goal_distance = 0.2
+            case State.TURNING:
+                self.previous_yaw = self.yaw
+            case State.BACKWARD:
+                self.log_counter = 0
+                self.navigator.backup(backup_dist=0.15, backup_speed=0.025, time_allowance=10)
             case _:
-                self.logger.info(f"WTF: {state}")
+                self.logger.info(f"State {state} is not predefined")
     
     def odom_callback(self, msg):
         self.pose = msg.pose.pose
 
-        (roll, pitch, yaw) = euler_from_quaternion([self.pose.orientation.x,
-                                                    self.pose.orientation.y,
-                                                    self.pose.orientation.z,
-                                                    self.pose.orientation.w])
+        (roll, pitch, yaw) = get_euler_from_quaternion(self.pose.orientation)
         
         self.yaw = yaw
     
@@ -226,8 +225,6 @@ class RobotController(Node):
         self.navigator.waitUntilNav2Active()
         
     def go_to_pose(self, x, y):
-        self.logger.info(f"Robot {self.robot_name} is going to pose ({x:.2f}, {y:.2f})")
-        
         goal_pose = PoseStamped()
         goal_pose.header.frame_id = 'map'
         goal_pose.header.stamp = self.navigator.get_clock().now().to_msg()
@@ -237,8 +234,6 @@ class RobotController(Node):
         goal_pose.pose.orientation.w = DEFAULT_POSE_ORIENTATION_W
         
         self.navigator.goToPose(goal_pose)
-        
-        self.logger.info(f"go_to_pose: State set to {self.state}")
 
     def scout(self):
         # if self.get_clock().now() - self.scout_ts > 10:
@@ -274,9 +269,7 @@ class RobotController(Node):
         Z_world = Z_camera + CAMERA_POS_GAZEBO[2]
         
         if Z_world < 0.3:
-            self.previous_pose = self.pose
-            self.goal_distance = 0.2
-            self.state = State.GRABBING
+            self.set_state(State.GRABBING)
             return
 
         msg = Twist()
@@ -307,13 +300,11 @@ class RobotController(Node):
         if self.scan_triggered[SCAN_LEFT] or self.scan_triggered[SCAN_RIGHT]:
             self.cmd_vel_publisher.publish(Twist())
             
-            self.previous_yaw = self.yaw
-            self.state = State.TURNING
+            self.set_state(State.TURNING)
             self.turn_angle = 5 # 5
 
             if self.scan_triggered[SCAN_LEFT] and self.scan_triggered[SCAN_RIGHT]:
-                self.turn_angle = 135
-                self.turn_direction = random.choice([TURN_LEFT, TURN_RIGHT])
+                self.set_state(State.BACKWARD)
                 self.get_logger().info("Detected obstacle to both the left and right, turning " + ("left" if self.turn_direction == TURN_LEFT else "right") + f" by {self.turn_angle:.2f} degrees")
             elif self.scan_triggered[SCAN_LEFT]:
                 self.turn_direction = TURN_RIGHT
@@ -326,10 +317,6 @@ class RobotController(Node):
         return False
     
     def turn(self):
-        # TODO: move this to forward
-        if len(self.fov_items.data) != 0:
-            self.state = State.COLLECTING
-        
         msg = Twist()
         msg.angular.z = self.turn_direction * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL
         self.cmd_vel_publisher.publish(msg)    
@@ -338,19 +325,8 @@ class RobotController(Node):
         
         self.goal_distance = random.uniform(0.075, 0.125) # random.uniform(0.125, 0.175)
         self.state = State.FORWARD
-        
-        # yaw_difference = angles.normalize_angle(self.yaw - self.previous_yaw)                
-
-        # if math.fabs(yaw_difference) >= math.radians(self.turn_angle):
-        #     self.previous_pose = self.pose
-        #     self.goal_distance = random.uniform(0.3, 0.9)
-        #     self.state = State.FORWARD
-        #     self.get_logger().info(f"Finished turning, driving forward by {self.goal_distance:.2f} metres")
 
     def forward(self):
-        # if len(self.fov_items.data) != 0:
-        #     self.state = State.COLLECTING
-        
         msg = Twist()
         msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL
         self.cmd_vel_publisher.publish(msg)
@@ -365,14 +341,10 @@ class RobotController(Node):
             self.logger.info(f"Finished driving forward by {self.goal_distance:.2f} metres")
             self.set_state(State.SCOUTING)
             if self.enroute_home:
-                self.set_state(State.HOMING) # State.HOMING
+                self.set_state(State.HOMING)
 
-    
     def control_loop(self):
-        marker_input = StringWithPose()
-        marker_input.text = str(self.state) # Visualise robot state as an RViz marker
-        marker_input.pose = self.pose # Set the pose of the RViz marker to track the robot's pose
-        self.marker_publisher.publish(marker_input)
+        self.marker_publisher.publish(self.process_marker())
         
         if self.halted:
             self.cmd_vel_publisher.publish(Twist())
@@ -394,21 +366,44 @@ class RobotController(Node):
                     self.set_state(State.SCOUTING)
                     
                     result = self.navigator.getResult()
-                    if result == TaskResult.SUCCEEDED:
-                        self.logger.info('Reached home zone')
-                    elif result == TaskResult.CANCELED:
-                        self.logger.info(f'Goal canceled')
-                    elif result == TaskResult.FAILED:
-                        self.logger.info(f'Goal failed')
-                    else:
-                        self.logger.info(f'Unknown result: {result}')
+                    match result:
+                        case TaskResult.SUCCEEDED:
+                            self.logger.info('Reached home zone successfully!')
+                        case TaskResult.CANCELED:
+                            self.logger.info(f'Enroute home canceled!')
+                        case TaskResult.FAILED:
+                            self.logger.info(f'Enroute home failed!')
+                        case _:
+                            self.get_logger().info("Enroute home unknown result {result}!")
                 else:
                     if not self.grabbed_item.holding_item:
                         self.navigator.cancelTask()
                         self.logger.info(f'Robot {self.get_namespace()} has lost its item, returning to scouting state')
                     elif self.obstacle_detection():
                         self.navigator.cancelTask()
-                    # self.logger.info(f"Moving to goal, current state: {self.state}")
+                    
+                    self.log_counter += 1
+                    feedback = self.navigator.getFeedback()
+                    if feedback and self.log_counter % 10 == 0:
+                        self.logger.info(f"ETA: {(Duration.from_msg(feedback.estimated_time_remaining).nanoseconds / 1e9):.2f} seconds")
+            case State.BACKWARD:
+                if not self.navigator.isTaskComplete():
+                    feedback = self.navigator.getFeedback()
+                    if feedback and self.log_counter % 10 == 0:
+                        self.get_logger().info(f"Distance travelled: {feedback.distance_traveled:.2f} metres")
+                else:
+                    self.set_state(State.SCOUTING)
+                    
+                    result = self.navigator.getResult()
+                    match result:
+                        case TaskResult.SUCCEEDED:
+                            self.get_logger().info("Backup succeeded!")
+                        case TaskResult.CANCELED:
+                            self.get_logger().info("Backup canceled!")
+                        case TaskResult.FAILED:
+                            self.get_logger().info("Backup failed!")
+                        case _:
+                            self.get_logger().info("Backup unknown result {result}!")
             case State.TURNING:
                 self.turn()
             case State.FORWARD:
@@ -416,8 +411,43 @@ class RobotController(Node):
                 if self.obstacle_detection():
                     return
     
-    # def camdar_loop(self):
-    #     pass
+    def process_marker(self):
+        marker = StateMarker()
+        marker.text = str(self.state)
+        marker.color.a = 1.0
+        marker.pose = self.pose
+        
+        match self.state:
+            case State.SCOUTING:
+                marker.color.r = 0.0
+                marker.color.g = 0.0
+                marker.color.b = 255/255.0
+            case State.COLLECTING, State.GRABBING:
+                marker.color.r = 0.0
+                marker.color.g = 255/255.0
+                marker.color.b = 0.0
+            case State.HOMING:
+                marker.color.r = 167/255.0
+                marker.color.g = 21/255.0
+                marker.color.b = 252/255.0
+            case State.TURNING, State.FORWARD:
+                marker.color.r = 252/255.0
+                marker.color.g = 159/255.0
+                marker.color.b = 21/255.0
+            case _:
+                marker.color.r = 21/255.0
+                marker.color.g = 252/255.0
+                marker.color.b = 244/255.0
+        
+        if self.halted:
+            marker.text = "Halted"
+            marker.color.r = 255/255.0
+            marker.color.g = 0.0
+            marker.color.b = 0.0
+        if self.enroute_home:
+            marker.text = "Enroute-Home"
+            
+        return marker
         
 
     def destroy_node(self):
@@ -449,11 +479,30 @@ def camera_model():
     
     return camera_model
 
+def get_euler_from_quaternion(quaternion):
+    x = quaternion.x
+    y = quaternion.y
+    z = quaternion.z
+    w = quaternion.w
+
+    sinr_cosp = 2 * (w * x + y * z)
+    cosr_cosp = 1 - 2 * (x * x + y * y)
+    roll = math.atan2(sinr_cosp, cosr_cosp)
+
+    sinp = 2 * (w * y - z * x)
+    pitch = math.asin(sinp)
+
+    siny_cosp = 2 * (w * z + x * y)
+    cosy_cosp = 1 - 2 * (y * y + z * z)
+    yaw = math.atan2(siny_cosp, cosy_cosp)
+
+    return roll, pitch, yaw
+
 def main(args=None):
 
     rclpy.init(args = args, signal_handler_options = SignalHandlerOptions.NO)
 
-    node = RobotController()
+    node = AutonomousNavigation()
 
     try:
         rclpy.spin(node)
