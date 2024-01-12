@@ -5,7 +5,7 @@ from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 
 from visualization_msgs.msg import Marker
-from auro_interfaces.msg import StringWithPose
+from solution_interfaces.msg import StateMarker
 
 from tf2_ros import TransformException, Buffer, TransformListener
 
@@ -35,15 +35,8 @@ class StateMarkerTransformer(Node):
         
         super().__init__('state_marker')
         
-        self.declare_parameter('r', 0.0)
-        self.declare_parameter('g', 0.0)
-        self.declare_parameter('b', 0.0)
-        self.r = self.get_parameter('r').get_parameter_value().double_value
-        self.g = self.get_parameter('g').get_parameter_value().double_value
-        self.b = self.get_parameter('b').get_parameter_value().double_value
-
         self.subscriber = self.create_subscription(
-            StringWithPose,
+            StateMarker,
             'raw_state_marker',
             self.subscriber_callback,
             10)
@@ -109,10 +102,7 @@ class StateMarkerTransformer(Node):
         marker.action = Marker.ADD
         marker.id = 0
         marker.scale.z = 0.1
-        marker.color.r = self.r
-        marker.color.g = self.g
-        marker.color.b = self.b
-        marker.color.a = 1.0
+        marker.color = data.color
         marker.pose = data.pose
         marker.pose.position.z += 0.2
         marker.text = data.text
