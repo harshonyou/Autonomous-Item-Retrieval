@@ -86,7 +86,6 @@ class AutonomousNavigation(Node):
         
         # Odom
         self.previous_pose = Pose()
-        self.previous_yaw = 0.0
         self.pose = Pose()
         self.yaw = 0.0
         
@@ -98,14 +97,13 @@ class AutonomousNavigation(Node):
         self.triggered_distance = [0.0] * 4
         
         # Scouting
-        self.scout_ts = self.get_clock().now()
+        self.scout_ts = self.get_clock().now().nanoseconds / 1e9
         self.scout_direction = TURN_LEFT
         
         # Grabbed Item
         self.grabbed_item = ItemHolder()
         
         # Obstacle Avoidance
-        self.turn_angle = 0.0
         self.turn_direction = TURN_LEFT
         self.enroute_home = False
         
@@ -154,12 +152,13 @@ class AutonomousNavigation(Node):
         self.timer_period = 0.1 # 100 milliseconds = 10 Hz
         self.controller_timer = self.create_timer(self.timer_period, self.control_loop)
     
-    def set_state(self, state): # Add markers and default states TODO
+    def set_state(self, state):
         self.state = state
         self.logger.debug(f"State set to {state}")
         
         match state:
             case State.SCOUTING:
+                self.scout_ts = self.get_clock().now().nanoseconds / 1e9
                 self.scout_direction = TURN_LEFT if random.random() > 0.5 else TURN_RIGHT
             case State.HOMING:
                 self.enroute_home = True
@@ -169,7 +168,7 @@ class AutonomousNavigation(Node):
                 self.previous_pose = self.pose
                 self.goal_distance = 0.2
             case State.TURNING:
-                self.previous_yaw = self.yaw
+                pass
             case State.BACKWARD:
                 self.log_counter = 0
                 self.navigator.backup(backup_dist=0.15, backup_speed=0.025, time_allowance=10)
@@ -236,8 +235,10 @@ class AutonomousNavigation(Node):
         self.navigator.goToPose(goal_pose)
 
     def scout(self):
-        # if self.get_clock().now() - self.scout_ts > 10:
-            # self.state = State.HOMING
+        if (self.get_clock().now().nanoseconds / 1e9) - self.scout_ts > 25:
+            self.logger.info("Scouting for too long, returning to home")
+            self.set_state(State.HOMING)
+            return
         
         if len(self.fov_items.data) != 0:
             self.state = State.COLLECTING
@@ -249,9 +250,8 @@ class AutonomousNavigation(Node):
     
     def collect(self):
         if len(self.fov_items.data) == 0:
-            # self.previous_pose = self.pose
-            # self.state = State.FORWARD
-            self.set_state(State.HOMING) # State.HOMING
+            self.logger.info("No items in FOV, returning to scouting state")
+            self.set_state(State.SCOUTING)
             return
 
         w_value = 1.0
@@ -269,6 +269,7 @@ class AutonomousNavigation(Node):
         Z_world = Z_camera + CAMERA_POS_GAZEBO[2]
         
         if Z_world < 0.3:
+            self.logger.info("Item is in the range of the robot, initiating grabbing sequence")
             self.set_state(State.GRABBING)
             return
 
@@ -287,8 +288,7 @@ class AutonomousNavigation(Node):
         difference_y = self.pose.position.y - self.previous_pose.position.y
         distance_travelled = math.sqrt(difference_x ** 2 + difference_y ** 2)
 
-        if distance_travelled >= self.goal_distance: #check if the bot have got item
-            # self.previous_pose = self.pose
+        if distance_travelled >= self.goal_distance: 
             self.logger.info(f"Grabbed item, drived forward by {self.goal_distance:.2f} metres")
             if not self.grabbed_item.holding_item:
                 self.logger.info(f"Robot {self.get_namespace()} has lost its item, returning to scouting state")
@@ -301,17 +301,13 @@ class AutonomousNavigation(Node):
             self.cmd_vel_publisher.publish(Twist())
             
             self.set_state(State.TURNING)
-            self.turn_angle = 5 # 5
 
             if self.scan_triggered[SCAN_LEFT] and self.scan_triggered[SCAN_RIGHT]:
                 self.set_state(State.BACKWARD)
-                self.get_logger().info("Detected obstacle to both the left and right, turning " + ("left" if self.turn_direction == TURN_LEFT else "right") + f" by {self.turn_angle:.2f} degrees")
             elif self.scan_triggered[SCAN_LEFT]:
                 self.turn_direction = TURN_RIGHT
-                self.get_logger().info(f"Detected obstacle to the left, turning right by {self.turn_angle} degrees")
             else: # self.scan_triggered[SCAN_RIGHT]
                 self.turn_direction = TURN_LEFT
-                self.get_logger().info(f"Detected obstacle to the right, turning left by {self.turn_angle} degrees")
             return True
         
         return False
@@ -321,9 +317,7 @@ class AutonomousNavigation(Node):
         msg.angular.z = self.turn_direction * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL
         self.cmd_vel_publisher.publish(msg)    
         
-        self.logger.info(f"Turning {self.turn_direction * self.turn_angle:.2f} degrees")
-        
-        self.goal_distance = random.uniform(0.075, 0.125) # random.uniform(0.125, 0.175)
+        self.goal_distance = random.uniform(0.075, 0.125)
         self.state = State.FORWARD
 
     def forward(self):
@@ -331,8 +325,6 @@ class AutonomousNavigation(Node):
         msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL
         self.cmd_vel_publisher.publish(msg)
         
-        self.logger.info(f"Driving forward by {self.goal_distance:.2f} metres")
-
         difference_x = self.pose.position.x - self.previous_pose.position.x
         difference_y = self.pose.position.y - self.previous_pose.position.y
         distance_travelled = math.sqrt(difference_x ** 2 + difference_y ** 2)
