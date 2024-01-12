@@ -57,14 +57,13 @@ def robot_controller_actions(context : LaunchContext):
                 output='screen',
                 executable='state_marker_transformer',
                 name='state_marker_transformer',
-                parameters=[{'r': 1.0, 'g': 0.0, 'b': 0.0}],
             ),
             
             Node(
                 package='solution',
                 output='screen',
-                executable='sol',
-                name='sol',
+                executable='autonomous_navigation',
+                name='autonomous_navigation',
                 parameters=[{'x_pose': pos['x'], 'y_pose': pos['y'], 'yaw': pos['yaw']}]
             ),
         ])
