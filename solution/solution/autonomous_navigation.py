@@ -35,11 +35,15 @@ ANGULAR_VELOCITY = 0.5 # 0.5
 DISTANCE_PROPRTIONAL = 0.5
 
 # LiDAR Scan Segments
-SCAN_THRESHOLD = 0.5
+SCAN_THRESHOLD = 0.325
+ENROUTE_HOME_SCAN_THRESHOLD = 0.275
 SCAN_FRONT = 0
 SCAN_LEFT = 1
 SCAN_BACK = 2
 SCAN_RIGHT = 3
+
+# Backup
+BACKWARD_THRESHOLD = 0.175
 
 # Different potential states for the robot
 class State(Enum):
@@ -167,8 +171,8 @@ class AutonomousNavigation(Node):
             case State.GRABBING:
                 self.previous_pose = self.pose
                 self.goal_distance = 0.2
-            case State.TURNING:
-                pass
+            case State.FORWARD:
+                self.previous_pose = self.pose
             case State.BACKWARD:
                 self.log_counter = 0
                 self.navigator.backup(backup_dist=0.15, backup_speed=0.025, time_allowance=10)
@@ -204,7 +208,7 @@ class AutonomousNavigation(Node):
         
         threshold = SCAN_THRESHOLD
         if self.enroute_home:
-            threshold = 0.275
+            threshold = ENROUTE_HOME_SCAN_THRESHOLD
             
         self.triggered_distance[SCAN_LEFT] = min(left_ranges)
         self.triggered_distance[SCAN_RIGHT] = min(right_ranges)
@@ -275,7 +279,15 @@ class AutonomousNavigation(Node):
 
         msg = Twist()
         msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * Z_world
-        msg.angular.z = item.x / 320.0
+            
+        # Calculate angular z based on item position and adjust for obstacles
+        angular_z_correction = 0.0
+        if self.triggered_distance[SCAN_LEFT] < 1:
+            angular_z_correction = TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL * Z_world
+        if self.triggered_distance[SCAN_RIGHT] < 1:
+            angular_z_correction += TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL * Z_world
+
+        msg.angular.z = (item.x / 320.0) + angular_z_correction
 
         self.cmd_vel_publisher.publish(msg)
     
@@ -302,11 +314,17 @@ class AutonomousNavigation(Node):
             
             self.set_state(State.TURNING)
 
-            if self.scan_triggered[SCAN_LEFT] and self.scan_triggered[SCAN_RIGHT]:
+            if self.triggered_distance[SCAN_LEFT] < BACKWARD_THRESHOLD or self.triggered_distance[SCAN_RIGHT] < BACKWARD_THRESHOLD:
+                self.logger.info("Backing up as obstacle is too close")
+                self.set_state(State.BACKWARD)
+            elif self.scan_triggered[SCAN_LEFT] and self.scan_triggered[SCAN_RIGHT]:
+                self.logger.info("Dead end, backing up")
                 self.set_state(State.BACKWARD)
             elif self.scan_triggered[SCAN_LEFT]:
+                self.logger.info("Obstacle detected on the left, turning right")
                 self.turn_direction = TURN_RIGHT
             else: # self.scan_triggered[SCAN_RIGHT]
+                self.logger.info("Obstacle detected on the right, turning left")
                 self.turn_direction = TURN_LEFT
             return True
         
@@ -318,7 +336,7 @@ class AutonomousNavigation(Node):
         self.cmd_vel_publisher.publish(msg)    
         
         self.goal_distance = random.uniform(0.075, 0.125)
-        self.state = State.FORWARD
+        self.set_state(State.FORWARD)
 
     def forward(self):
         msg = Twist()
@@ -339,6 +357,7 @@ class AutonomousNavigation(Node):
         self.marker_publisher.publish(self.process_marker())
         
         if self.halted:
+            self.logger.info("Robot is halted")
             self.cmd_vel_publisher.publish(Twist())
             return
         
@@ -436,7 +455,7 @@ class AutonomousNavigation(Node):
             marker.color.r = 255/255.0
             marker.color.g = 0.0
             marker.color.b = 0.0
-        if self.enroute_home:
+        elif self.enroute_home:
             marker.text = "Enroute-Home"
             
         return marker
