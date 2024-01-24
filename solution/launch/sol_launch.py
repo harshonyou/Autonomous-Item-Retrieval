@@ -59,13 +59,13 @@ def robot_controller_actions(context : LaunchContext):
                 name='state_marker_transformer',
             ),
             
-            # Node(
-            #     package='solution',
-            #     output='screen',
-            #     executable='autonomous_navigation',
-            #     name='autonomous_navigation',
-            #     parameters=[{'x_pose': pos['x'], 'y_pose': pos['y'], 'yaw': pos['yaw']}]
-            # ),
+            Node(
+                package='solution',
+                output='screen',
+                executable='autonomous_navigation',
+                name='autonomous_navigation',
+                parameters=[{'x_pose': pos['x'], 'y_pose': pos['y'], 'yaw': pos['yaw']}]
+            ),
         ])
 
         actions.append(group)
