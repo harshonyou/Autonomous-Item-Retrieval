@@ -52,12 +52,12 @@ def robot_controller_actions(context : LaunchContext):
                 name='lidar_cloud',
             ),
             
-            # Node(
-            #     package='solution',
-            #     output='screen',
-            #     executable='state_marker_transformer',
-            #     name='state_marker_transformer',
-            # ),
+            Node(
+                package='solution',
+                output='screen',
+                executable='state_marker_transformer',
+                name='state_marker_transformer',
+            ),
             
             # Node(
             #     package='solution',

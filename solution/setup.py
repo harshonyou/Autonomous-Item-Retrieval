@@ -52,6 +52,7 @@ setup(
             'sensor_fusion = solution.sensor_fusion:main',
             'item_cloud = solution.item_cloud:main',
             'lidar_cloud = solution.lidar_cloud:main',
+            'state_marker_transformer = solution.state_marker_transformer:main',
         ],
     },
 )
