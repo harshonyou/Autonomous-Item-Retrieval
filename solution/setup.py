@@ -51,6 +51,7 @@ setup(
             'data_logger = solution.data_logger:main',
             'sensor_fusion = solution.sensor_fusion:main',
             'item_cloud = solution.item_cloud:main',
+            'lidar_cloud = solution.lidar_cloud:main',
         ],
     },
 )

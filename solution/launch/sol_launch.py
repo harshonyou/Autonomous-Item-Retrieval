@@ -45,12 +45,12 @@ def robot_controller_actions(context : LaunchContext):
                 name='item_cloud',
             ),
             
-            # Node(
-            #     package='solution',
-            #     output='screen',
-            #     executable='lidar_cloud',
-            #     name='lidar_cloud',
-            # ),
+            Node(
+                package='solution',
+                output='screen',
+                executable='lidar_cloud',
+                name='lidar_cloud',
+            ),
             
             # Node(
             #     package='solution',
