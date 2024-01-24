@@ -38,12 +38,12 @@ def robot_controller_actions(context : LaunchContext):
                 name='sensor_fusion',
             ),
             
-            # Node(
-            #     package='solution',
-            #     output='screen',
-            #     executable='item_cloud',
-            #     name='item_cloud',
-            # ),
+            Node(
+                package='solution',
+                output='screen',
+                executable='item_cloud',
+                name='item_cloud',
+            ),
             
             # Node(
             #     package='solution',
