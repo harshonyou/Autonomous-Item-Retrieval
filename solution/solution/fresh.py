@@ -20,6 +20,9 @@ from image_geometry import PinholeCameraModel
 from std_msgs.msg import Header, Bool
 from rclpy.duration import Duration
 
+import matplotlib.pyplot as plt
+import numpy as np
+import time
 
 from solution_interfaces.msg import StateMarker
 
@@ -47,9 +50,20 @@ DISTANCE_PROPRTIONAL = 0.5
 # LiDAR Scan Segments
 SCAN_THRESHOLD = 0.5
 DEVIATION_THRESHOLD = 1
+CONSTRAINT_THRESHOLD = 0.25
+LETHAL_THRESHOLD = 0.225
 SCAN_FRONT = 0
-SCAN_LEFT = 1
-SCAN_RIGHT = 2
+SCAN_FRONT_LEFT = 1
+SCAN_FRONT_RIGHT = 2
+SCAN_LEFT = 3
+SCAN_RIGHT = 4
+
+class State(Enum):
+    AUTONOMOUS = 0
+    AVOIDANCE = 1
+    CONSTRAINT = 2
+    LETHAL = 3
+    HALT = 4
 
 # Camera Properties
 H_FOV = 1.085595
@@ -87,7 +101,7 @@ class FindBall(Behaviour):
         self.rotate_to_find_ball()
         return Status.RUNNING
 
-    def rotate_to_find_ball(self):
+    def rotate_to_find_ball(self): # problomatic if rotation starts with COnstraint or Lethal state
         cmd = Twist()
         cmd.linear.x = 0.0
         cmd.angular.z = ANGULAR_VELOCITY * self.scout_direction
@@ -291,6 +305,9 @@ class AutonomousNavigation(Node):
         self.logger = self.get_logger()
         self.logger.info(f"Initial Pose of Robot {self.robot_name}: ({self.initial_x:.2f}, {self.initial_y:.2f}), {self.initial_yaw:.2f}")
         
+        # State
+        self.state = State.AUTONOMOUS
+        
         # Camera Model
         self.camera_model:PinholeCameraModel = camera_model()
         
@@ -305,8 +322,14 @@ class AutonomousNavigation(Node):
         
         # Lidar Scan
         self.lidar_scan = LaserScan()
-        self.scan = [False] * 3
+        self.scan = [0.0] * 5
         # self.triggered_distance = [0.0] * 4
+        self.fig, self.ax = plt.subplots(subplot_kw={'projection': 'polar'})
+        self.lidar_plot, = self.ax.plot([], [], 'b.')  # Initial empty plot
+        self.ax.set_theta_zero_location('N')  # Set 0 degrees to the top
+        plt.ion()  # Turn on interactive mode
+        plt.show()
+        self.last_update_time = time.time()
         
         # Home Zone
         self.home_zone = HomeZone()
@@ -373,14 +396,37 @@ class AutonomousNavigation(Node):
     def lidar_callback(self, msg):
         self.lidar_scan = msg
         
-        left_ranges = msg.ranges[:45]
-        right_ranges = msg.ranges[315:]
-        front_ranges = left_ranges + right_ranges
+        current_time = time.time()
+        if current_time - self.last_update_time >= 1:  # Update every second
+            angles = np.linspace(msg.angle_min, msg.angle_max, len(msg.ranges))
+            ranges = np.array(msg.ranges)
+            ranges[np.isinf(ranges)] = msg.range_max  # Replace inf with max range
+
+            # Adjust angles for the plot rotation
+            angles = np.pi / 2 - angles
+
+            # Update the plot
+            self.lidar_plot.set_data(angles, ranges)
+            self.ax.relim()  # Recompute the ax.dataLim
+            self.ax.autoscale_view()  # Update axes with new data
+            plt.draw()
+            plt.pause(0.001)
+
+            self.last_update_time = current_time  # Update last update time
+
+
+        
+        front_left_ranges = msg.ranges[:45]
+        front_right_ranges = msg.ranges[315:]
+        front_ranges = front_left_ranges + front_right_ranges
+        left_ranges = msg.ranges[45:135]
+        right_ranges = msg.ranges[225:315]
         
         self.scan[SCAN_FRONT] = min(front_ranges)
+        self.scan[SCAN_FRONT_LEFT] = min(front_left_ranges)
+        self.scan[SCAN_FRONT_RIGHT] = min(front_right_ranges)
         self.scan[SCAN_LEFT] = min(left_ranges)
         self.scan[SCAN_RIGHT] = min(right_ranges)
-        
         
             
     def fov_items_callback(self, msg):
@@ -475,12 +521,37 @@ class AutonomousNavigation(Node):
             tree_ascii = unicode_tree(self.tree.root)
             file.write(tree_ascii)
 
+    # Potential States: Halt, Constraint, Avoidance, Autonomous, Lethal
+
+    def state_machine(self):
+        if self.scan[SCAN_FRONT] < LETHAL_THRESHOLD:
+            self.logger.info(f"Lethal Detected: {self.scan[SCAN_FRONT]:.3f}")
+            self.state = State.LETHAL
+        elif self.scan[SCAN_LEFT] < CONSTRAINT_THRESHOLD or self.scan[SCAN_RIGHT] < CONSTRAINT_THRESHOLD:
+            self.logger.info(f"Constraint Detected: {min(self.scan[SCAN_LEFT], self.scan[SCAN_RIGHT]):.3f}")
+            self.state = State.CONSTRAINT
+        else:
+            self.state = State.AUTONOMOUS
+
     def control_loop(self):
-        # self.logger.info(f"Fresh running")        
-        self.tree.tick()
+        # self.logger.info(f"Fresh running")    
         
-        self.post_tick_handler()
-        # self.logger.info(f"Front {self.scan[SCAN_FRONT]:.3f}, Left {self.scan[SCAN_LEFT]:.3f}, Right {self.scan[SCAN_RIGHT]:.3f}")
+        self.state_machine()
+            
+        # self.tree.tick()
+        # self.post_tick_handler()
+        
+        # self.logger.info(f"State: {self.state}")
+        
+        match self.state:
+            case State.AUTONOMOUS | State.CONSTRAINT:
+                self.tree.tick()
+                self.post_tick_handler()
+            case State.LETHAL:
+                self.stop_moving()
+            
+        
+        # self.logger.info(f"Front: {self.scan[SCAN_FRONT]:.3f}, Front Left: {self.scan[SCAN_FRONT_LEFT]:.3f}, Front Right: {self.scan[SCAN_FRONT_RIGHT]:.3f}, Left: {self.scan[SCAN_LEFT]:.3f}, Right: {self.scan[SCAN_RIGHT]:.3f}")
         
         # angular_z_correction = 0.0
         # Z_world = 1.0
@@ -490,7 +561,17 @@ class AutonomousNavigation(Node):
         #     angular_z_correction += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / Z_world
         
         # self.logger.info(f"Angular Z Correction: {angular_z_correction:.3f}")
+    
+    def publish_cmd_vel(self, linear_x, angular_z):
+        msg = Twist()
+        msg.linear.x = linear_x
+        msg.angular.z = angular_z
         
+        if self.state == State.CONSTRAINT:
+            msg.angular.z = 0.0
+        
+        self.cmd_vel_publisher.publish(msg)
+    
     def ball_in_fov(self):
         return len(self.fov_items.data) != 0
     
@@ -513,21 +594,26 @@ class AutonomousNavigation(Node):
         msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * Z_world
         
         angular_z_correction = 0.0
-        if self.scan[SCAN_LEFT] < DEVIATION_THRESHOLD:
-            angular_z_correction += (TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / self.scan[SCAN_LEFT]
-        if self.scan[SCAN_RIGHT] < DEVIATION_THRESHOLD:
-            angular_z_correction += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / self.scan[SCAN_RIGHT]
+        try:
+            if self.scan[SCAN_FRONT_LEFT] < DEVIATION_THRESHOLD:
+                angular_z_correction += (TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / self.scan[SCAN_FRONT_LEFT]
+            if self.scan[SCAN_FRONT_RIGHT] < DEVIATION_THRESHOLD:
+                angular_z_correction += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / self.scan[SCAN_FRONT_RIGHT]
+        except ZeroDivisionError:
+            pass
         
         if angular_z_correction != 0.0:
             self.logger.info(f"Angular Z Correction: {angular_z_correction:.3f}")
         
         msg.angular.z = (item.x / 320.0) + angular_z_correction
 
-        self.cmd_vel_publisher.publish(msg)
+        self.publish_cmd_vel(msg.linear.x, msg.angular.z)
+        # self.cmd_vel_publisher.publish(msg)
         
     def stop_moving(self):
         msg = Twist()
-        self.cmd_vel_publisher.publish(msg)
+        self.publish_cmd_vel(msg.linear.x, msg.angular.z)
+        # self.cmd_vel_publisher.publish(msg)
         
     def go_to_pose(self, pos):
         goal_pose = PoseStamped()
