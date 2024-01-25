@@ -3,6 +3,7 @@ import math
 import random
 import sys
 from enum import Enum
+from time import sleep
 
 import rclpy
 from rclpy.node import Node
@@ -228,6 +229,26 @@ class ApproachHome(Behaviour):
             else:
                 return Status.RUNNING
 
+class BallPlaced(Behaviour):
+    def __init__(self, name, robot_node):
+        super(BallPlaced, self).__init__(name)
+        self.robot_node = robot_node
+
+    def update(self):
+        if not self.robot_node.grabbed_item.holding_item:
+            return Status.SUCCESS
+        else:
+            return Status.FAILURE
+
+class PlaceBall(Behaviour):
+    def __init__(self, name, robot_node):
+        super(PlaceBall, self).__init__(name)
+        self.robot_node = robot_node
+
+    def update(self):
+        sleep(1)
+        return Status.SUCCESS
+
 
 class AutonomousNavigation(Node):
 
@@ -357,6 +378,8 @@ class AutonomousNavigation(Node):
         grasp_ball = GraspBall("Grasp Ball", self)
         home_close = HomeClose("Home Close", self)
         approach_home = ApproachHome("Approach Home", self, self.initial_pos)
+        ball_placed = BallPlaced("Ball Placed", self)
+        place_ball = PlaceBall("Place Ball", self)
 
         # Build the tree structure
         root = Sequence(name="Root", memory=True)
@@ -380,12 +403,17 @@ class AutonomousNavigation(Node):
         home_sequence = Selector(name="Home Sequence", memory=True)
         home_sequence.add_child(home_close)
         home_sequence.add_child(approach_home)
+        # Sequence for placing the ball
+        place_sequence = Selector(name="Place Sequence", memory=True)
+        place_sequence.add_child(ball_placed)
+        place_sequence.add_child(place_ball)
 
         # Add sequences to the root
         root.add_child(find_sequence)
         root.add_child(approach_sequence)
         root.add_child(grasp_sequence)
         root.add_child(home_sequence)
+        root.add_child(place_sequence)
 
         return BehaviourTree(root)
         
