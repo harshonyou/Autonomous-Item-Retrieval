@@ -25,23 +25,31 @@ from solution_interfaces.msg import StateMarker
 
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
-from py_trees.composites import Sequence, Selector
+from py_trees.composites import Sequence, Selector, Parallel
 from py_trees.trees import BehaviourTree
 from py_trees import logging as log_tree
 from py_trees.display import dot_tree, unicode_tree
+from py_trees.common import ParallelPolicy
 
 # Default Pose Orientation
 DEFAULT_POSE_ORIENTATION_Z = 0.0
 DEFAULT_POSE_ORIENTATION_W = 0.99
 
 # Turning
-TURN_LEFT = -1
-TURN_RIGHT = 1
+TURN_LEFT = 1
+TURN_RIGHT = -1
 
 # Robot Movement
 LINEAR_VELOCITY = 0.11 # 0.3
 ANGULAR_VELOCITY = 0.5 # 0.5
 DISTANCE_PROPRTIONAL = 0.5
+
+# LiDAR Scan Segments
+SCAN_THRESHOLD = 0.5
+DEVIATION_THRESHOLD = 1
+SCAN_FRONT = 0
+SCAN_LEFT = 1
+SCAN_RIGHT = 2
 
 # Camera Properties
 H_FOV = 1.085595
@@ -113,6 +121,7 @@ class ApproachBall(Behaviour):
     def __init__(self, name, robot_node):
         super(ApproachBall, self).__init__(name)
         self.robot_node = robot_node
+        self.obstacle_distance_threshold = 0.5
     
     def update(self):
         if not self.robot_node.ball_in_fov():
@@ -127,6 +136,13 @@ class ApproachBall(Behaviour):
             self.logger.info(f"Item {item.colour} is close: {Z_world:.2f}")
             return Status.SUCCESS
 
+        # is_obstacle_detected = any(distance < self.obstacle_distance_threshold for distance in self.robot_node.lidar_scan.ranges)
+        # if is_obstacle_detected:
+        #     # Stop moving if obstacle detected
+        #     self.robot_node.stop_moving()
+        #     self.logger.info(f"Obstacle detected: {min(self.robot_node.lidar_scan.ranges):.2f}")
+        #     return Status.RUNNING
+        
         # Approach the ball
         self.robot_node.approach_ball(item, Z_world)
         return Status.RUNNING
@@ -287,6 +303,11 @@ class AutonomousNavigation(Node):
         # FOV Items
         self.fov_items = ItemList()
         
+        # Lidar Scan
+        self.lidar_scan = LaserScan()
+        self.scan = [False] * 3
+        # self.triggered_distance = [0.0] * 4
+        
         # Home Zone
         self.home_zone = HomeZone()
         
@@ -298,7 +319,15 @@ class AutonomousNavigation(Node):
             Odometry,
             'odom',
             self.odom_callback,
-            10)
+            10
+        )
+        
+        self.lidiar_subscriber = self.create_subscription(
+            LaserScan,
+            'scan',
+            self.lidar_callback,
+            QoSPresetProfiles.SENSOR_DATA.value
+        )
         
         self.fov_items_subscriber = self.create_subscription(
             ItemList,
@@ -341,6 +370,19 @@ class AutonomousNavigation(Node):
         
         self.yaw = yaw
     
+    def lidar_callback(self, msg):
+        self.lidar_scan = msg
+        
+        left_ranges = msg.ranges[:45]
+        right_ranges = msg.ranges[315:]
+        front_ranges = left_ranges + right_ranges
+        
+        self.scan[SCAN_FRONT] = min(front_ranges)
+        self.scan[SCAN_LEFT] = min(left_ranges)
+        self.scan[SCAN_RIGHT] = min(right_ranges)
+        
+        
+            
     def fov_items_callback(self, msg):
         # self.logger.info(f"FOV Items: {msg}")
         self.fov_items = msg
@@ -438,6 +480,16 @@ class AutonomousNavigation(Node):
         self.tree.tick()
         
         self.post_tick_handler()
+        # self.logger.info(f"Front {self.scan[SCAN_FRONT]:.3f}, Left {self.scan[SCAN_LEFT]:.3f}, Right {self.scan[SCAN_RIGHT]:.3f}")
+        
+        # angular_z_correction = 0.0
+        # Z_world = 1.0
+        # if self.scan[SCAN_LEFT] < DEVIATION_THRESHOLD:
+        #     angular_z_correction += ( TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / Z_world
+        # if self.scan[SCAN_RIGHT] < DEVIATION_THRESHOLD:
+        #     angular_z_correction += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / Z_world
+        
+        # self.logger.info(f"Angular Z Correction: {angular_z_correction:.3f}")
         
     def ball_in_fov(self):
         return len(self.fov_items.data) != 0
@@ -459,7 +511,17 @@ class AutonomousNavigation(Node):
     def approach_ball(self, item, Z_world):
         msg = Twist()
         msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * Z_world
-        msg.angular.z = (item.x / 320.0)
+        
+        angular_z_correction = 0.0
+        if self.scan[SCAN_LEFT] < DEVIATION_THRESHOLD:
+            angular_z_correction += (TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / self.scan[SCAN_LEFT]
+        if self.scan[SCAN_RIGHT] < DEVIATION_THRESHOLD:
+            angular_z_correction += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / self.scan[SCAN_RIGHT]
+        
+        if angular_z_correction != 0.0:
+            self.logger.info(f"Angular Z Correction: {angular_z_correction:.3f}")
+        
+        msg.angular.z = (item.x / 320.0) + angular_z_correction
 
         self.cmd_vel_publisher.publish(msg)
         
