@@ -52,31 +52,26 @@ class BallFound(Behaviour):
     def __init__(self, name, robot_node):
         super(BallFound, self).__init__(name)
         self.robot_node = robot_node
-        self.logger.debug(f"BallFound::setup {self.name}")
 
     def update(self):
-        self.logger.debug(f"BallFound::update {self.name}")
         if self.robot_node.ball_in_fov():
-            self.logger.info(f"{self.robot_node.fov_items.data} items found")
+            self.logger.info(f"{len(self.robot_node.fov_items.data)} items found")
             return Status.SUCCESS
-        else:
-            return Status.FAILURE
+
+        return Status.FAILURE
 
 class FindBall(Behaviour):
     def __init__(self, name, robot_node):
         super(FindBall, self).__init__(name)
         self.robot_node = robot_node
-        self.logger.debug(f"FindBall::setup {self.name}")
 
     def initialise(self):
-        self.logger.debug(f"FindBall::initialise {self.name}")
         self.scout_direction = TURN_LEFT if random.random() > 0.5 else TURN_RIGHT
 
     def update(self):
-        self.logger.debug(f"FindBall::update {self.name}")
-        
         if self.robot_node.ball_in_fov():
             self.stop_rotating()
+            self.logger.info(f"{len(self.robot_node.fov_items.data)} items found")
             return Status.SUCCESS
         
         # Continue rotating to find the ball
@@ -99,11 +94,8 @@ class BallClose(Behaviour):
     def __init__(self, name, robot_node):
         super(BallClose, self).__init__(name)
         self.robot_node = robot_node
-        self.logger.debug(f"BallClose::setup {self.name}")
-
+        
     def update(self):
-        self.logger.debug(f"BallClose::update {self.name}")
-
         if self.robot_node.ball_in_fov():
             return Status.FAILURE
 
@@ -111,6 +103,7 @@ class BallClose(Behaviour):
         Z_world = self.robot_node.calculate_distance_to_ball(item)
 
         if Z_world < 0.3:  # Ball is close
+            self.logger.info(f"Item {item.colour} is close: {Z_world:.2f}")
             return Status.SUCCESS
         else:
             return Status.FAILURE
@@ -119,11 +112,8 @@ class ApproachBall(Behaviour):
     def __init__(self, name, robot_node):
         super(ApproachBall, self).__init__(name)
         self.robot_node = robot_node
-        self.logger.debug(f"ApproachBall::setup {self.name}")
-
+    
     def update(self):
-        self.logger.debug(f"ApproachBall::update {self.name}")
-
         if not self.robot_node.ball_in_fov():
             return Status.FAILURE
 
@@ -133,6 +123,7 @@ class ApproachBall(Behaviour):
         if Z_world < 0.3:
             # Stop moving if close enough
             self.robot_node.stop_moving()
+            self.logger.info(f"Item {item.colour} is close: {Z_world:.2f}")
             return Status.SUCCESS
 
         # Approach the ball
@@ -143,29 +134,28 @@ class BallGrasped(Behaviour):
     def __init__(self, name, robot_node):
         super(BallGrasped, self).__init__(name)
         self.robot_node = robot_node
-
+        
     def update(self):
         # Check if the robot is holding an item
-        if self.robot_node.grabbed_item.holding_item is not None:
+        if self.robot_node.grabbed_item.holding_item:
             # Further logic can be added to check for a ball of higher value
             # For example:
             # if self.robot_node.grabbed_item.item_value < some_value:
             #     return Status.FAILURE
-            if not self.robot_node.ball_in_fov():
-                return Status.FAILURE
-            
-            if self.robot_node.grabbed_item.item_value < self.robot_node.fov_items.data[0].value:
-                return Status.FAILURE
+            if self.robot_node.ball_in_fov():
+                if self.robot_node.grabbed_item.item_value < self.robot_node.fov_items.data[0].value:
+                    self.logger.info(f"Item {self.robot_node.grabbed_item.item_colour} is not the highest value")
+                    return Status.FAILURE
             
             return Status.SUCCESS
         else:
             return Status.FAILURE
 
 class GraspBall(Behaviour):
-    def __init__(self, name, robot_node):
+    def __init__(self, name, robot_node, distance_to_move=0.2):
         super(GraspBall, self).__init__(name)
         self.robot_node = robot_node
-        self.distance_to_move = 0.2  # Meters
+        self.distance_to_move = distance_to_move  # Meters
 
     def initialise(self):
         self.moved = False
@@ -193,6 +183,51 @@ class GraspBall(Behaviour):
             self.robot_node.stop_moving()
             self.moved = True
 
+class HomeClose(Behaviour):
+    def __init__(self, name, robot_node, threshold=0.5):
+        super(HomeClose, self).__init__(name)
+        self.robot_node = robot_node
+        self.threshold = threshold
+
+    def update(self):
+        # Check if the home zone size in camera view is more than the threshold
+        # if self.robot_node.home_zone_size_in_camera > self.threshold:
+        #     return Status.SUCCESS
+        # else:
+        #     return Status.FAILURE
+        
+        # self.robot_node.logger.info(f"Home Zone: {self.robot_node.home_zone}")
+        if self.robot_node.home_zone.size > self.threshold:
+            return Status.SUCCESS
+        
+        if not self.robot_node.grabbed_item.holding_item:
+            return Status.SUCCESS
+        
+        return Status.FAILURE
+
+class ApproachHome(Behaviour):
+    def __init__(self, name, robot_node, target_position):
+        super(ApproachHome, self).__init__(name)
+        self.robot_node = robot_node
+        self.target_position = target_position
+    
+    def initialise(self):
+        self.enroute = False
+
+    def update(self):
+        # Command the robot to move to the target position
+        # self.robot_node.navigator.go_to_pose(self.target_position)
+
+        if not self.enroute:
+            self.robot_node.go_to_pose(self.target_position)
+            self.enroute = True
+            return Status.RUNNING
+        else:
+            if self.robot_node.navigator.isTaskComplete():
+                return Status.SUCCESS
+            else:
+                return Status.RUNNING
+
 
 class AutonomousNavigation(Node):
 
@@ -209,6 +244,12 @@ class AutonomousNavigation(Node):
         self.initial_y = self.get_parameter('y_pose').get_parameter_value().double_value
         self.initial_yaw = self.get_parameter('yaw').get_parameter_value().double_value
         
+        self.initial_pos = Pose()
+        self.initial_pos.position.x = self.initial_x -3.5
+        self.initial_pos.position.y = self.initial_y
+        self.initial_pos.orientation.z = DEFAULT_POSE_ORIENTATION_Z
+        self.initial_pos.orientation.w = DEFAULT_POSE_ORIENTATION_W
+        
         # Logger
         self.logger = self.get_logger()
         self.logger.info(f"Initial Pose of Robot {self.robot_name}: ({self.initial_x:.2f}, {self.initial_y:.2f}), {self.initial_yaw:.2f}")
@@ -217,14 +258,16 @@ class AutonomousNavigation(Node):
         self.camera_model:PinholeCameraModel = camera_model()
         
         # NAV2
-        # self.navigator = BasicNavigator()
-        # self.set_initial_pose()
+        self.navigator = BasicNavigator(namespace=self.robot_name)
         
         # Odometry
         self.pose = Pose()
         
         # FOV Items
         self.fov_items = ItemList()
+        
+        # Home Zone
+        self.home_zone = HomeZone()
         
         # Grabbed Item
         self.grabbed_item = ItemHolder()
@@ -243,6 +286,13 @@ class AutonomousNavigation(Node):
             10
         )
         
+        self.home_zone_subscriber = self.create_subscription(
+            HomeZone,
+            'home_zone',
+            self.home_zone_callback,
+            10
+        )
+        
         self.garbbed_item_subscriber = self.create_subscription(
             ItemHolders,
             '/item_holders',
@@ -250,7 +300,8 @@ class AutonomousNavigation(Node):
             10
         )
         
-        log_tree.level = log_tree.Level.DEBUG
+        # log_tree.level = log_tree.Level.DEBUG
+        log_tree.level = log_tree.Level.INFO
         self.tree = self.create_behavior_tree()
         dot_graph = dot_tree(self.tree.root)
         with open('tree.dot', 'w') as f:
@@ -274,6 +325,9 @@ class AutonomousNavigation(Node):
         self.fov_items = msg
         self.fov_items.data = [item for item in self.fov_items.data if item.y >= 2 and item.y <= 4]
 
+    def home_zone_callback(self, msg):
+        self.home_zone = msg
+    
     def garbbed_item_callback(self, msg):
         for item_holder in msg.data:
             if item_holder.robot_id == self.robot_name:
@@ -301,6 +355,8 @@ class AutonomousNavigation(Node):
         approach_ball = ApproachBall("Approach Ball", self)
         ball_grasped = BallGrasped("Ball Grasped", self)
         grasp_ball = GraspBall("Grasp Ball", self)
+        home_close = HomeClose("Home Close", self)
+        approach_home = ApproachHome("Approach Home", self, self.initial_pos)
 
         # Build the tree structure
         root = Sequence(name="Root", memory=True)
@@ -319,11 +375,17 @@ class AutonomousNavigation(Node):
         grasp_sequence = Selector(name="Grasp Sequence", memory=True)
         grasp_sequence.add_child(ball_grasped)
         grasp_sequence.add_child(grasp_ball)
+        
+        # Sequence for enrouting to home
+        home_sequence = Selector(name="Home Sequence", memory=True)
+        home_sequence.add_child(home_close)
+        home_sequence.add_child(approach_home)
 
         # Add sequences to the root
         root.add_child(find_sequence)
         root.add_child(approach_sequence)
         root.add_child(grasp_sequence)
+        root.add_child(home_sequence)
 
         return BehaviourTree(root)
         
@@ -331,10 +393,7 @@ class AutonomousNavigation(Node):
         initial_pose = PoseStamped()
         initial_pose.header.frame_id = 'map'
         initial_pose.header.stamp = self.navigator.get_clock().now().to_msg()
-        initial_pose.pose.position.x = self.initial_x
-        initial_pose.pose.position.y = self.initial_y
-        initial_pose.pose.orientation.z = DEFAULT_POSE_ORIENTATION_Z
-        initial_pose.pose.orientation.w = DEFAULT_POSE_ORIENTATION_W
+        initial_pose.pose = self.initial_pos
         self.navigator.setInitialPose(initial_pose)
         self.navigator.waitUntilNav2Active()
 
@@ -379,8 +438,18 @@ class AutonomousNavigation(Node):
     def stop_moving(self):
         msg = Twist()
         self.cmd_vel_publisher.publish(msg)
+        
+    def go_to_pose(self, pos):
+        goal_pose = PoseStamped()
+        goal_pose.header.frame_id = 'map'
+        goal_pose.header.stamp = self.navigator.get_clock().now().to_msg()
+        goal_pose.pose = pos
+        
+        self.navigator.goToPose(goal_pose)
 
     def destroy_node(self):
+        self.navigator.cancelTask()
+        self.stop_moving()
         super().destroy_node()
     
 def camera_model():
