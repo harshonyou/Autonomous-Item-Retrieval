@@ -139,6 +139,60 @@ class ApproachBall(Behaviour):
         self.robot_node.approach_ball(item, Z_world)
         return Status.RUNNING
 
+class BallGrasped(Behaviour):
+    def __init__(self, name, robot_node):
+        super(BallGrasped, self).__init__(name)
+        self.robot_node = robot_node
+
+    def update(self):
+        # Check if the robot is holding an item
+        if self.robot_node.grabbed_item.holding_item is not None:
+            # Further logic can be added to check for a ball of higher value
+            # For example:
+            # if self.robot_node.grabbed_item.item_value < some_value:
+            #     return Status.FAILURE
+            if not self.robot_node.ball_in_fov():
+                return Status.FAILURE
+            
+            if self.robot_node.grabbed_item.item_value < self.robot_node.fov_items.data[0].value:
+                return Status.FAILURE
+            
+            return Status.SUCCESS
+        else:
+            return Status.FAILURE
+
+class GraspBall(Behaviour):
+    def __init__(self, name, robot_node):
+        super(GraspBall, self).__init__(name)
+        self.robot_node = robot_node
+        self.distance_to_move = 0.2  # Meters
+
+    def initialise(self):
+        self.moved = False
+        self.pose = self.robot_node.pose
+
+    def update(self):
+        if not self.moved:
+            # Move forward
+            self.move_forward(self.distance_to_move)
+            # self.moved = True
+            return Status.RUNNING
+        else:
+            return Status.SUCCESS
+
+    def move_forward(self, distance):
+        msg = Twist()
+        msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL
+        self.robot_node.cmd_vel_publisher.publish(msg)
+        
+        difference_x = self.robot_node.pose.position.x - self.pose.position.x
+        difference_y = self.robot_node.pose.position.y - self.pose.position.y
+        
+        distance_travelled = math.sqrt(difference_x ** 2 + difference_y ** 2)
+        if distance_travelled >= distance:
+            self.robot_node.stop_moving()
+            self.moved = True
+
 
 class AutonomousNavigation(Node):
 
@@ -166,14 +220,33 @@ class AutonomousNavigation(Node):
         # self.navigator = BasicNavigator()
         # self.set_initial_pose()
         
+        # Odometry
+        self.pose = Pose()
+        
         # FOV Items
         self.fov_items = ItemList()
         
+        # Grabbed Item
+        self.grabbed_item = ItemHolder()
+        
         # Subscribers
+        self.odom_subscriber = self.create_subscription(
+            Odometry,
+            'odom',
+            self.odom_callback,
+            10)
+        
         self.fov_items_subscriber = self.create_subscription(
             ItemList,
             'items',
             self.fov_items_callback,
+            10
+        )
+        
+        self.garbbed_item_subscriber = self.create_subscription(
+            ItemHolders,
+            '/item_holders',
+            self.garbbed_item_callback,
             10
         )
         
@@ -188,7 +261,25 @@ class AutonomousNavigation(Node):
         
         self.timer_period = 0.1 # 100 milliseconds = 10 Hz
         self.controller_timer = self.create_timer(self.timer_period, self.control_loop)
+    
+    def odom_callback(self, msg):
+        self.pose = msg.pose.pose
+
+        (roll, pitch, yaw) = get_euler_from_quaternion(self.pose.orientation)
         
+        self.yaw = yaw
+    
+    def fov_items_callback(self, msg):
+        # self.logger.info(f"FOV Items: {msg}")
+        self.fov_items = msg
+        self.fov_items.data = [item for item in self.fov_items.data if item.y >= 2 and item.y <= 4]
+
+    def garbbed_item_callback(self, msg):
+        for item_holder in msg.data:
+            if item_holder.robot_id == self.robot_name:
+                self.grabbed_item = item_holder
+                break
+    
     def create_behavior_tree(self):
         # # Create specific behaviors
         # ball_found = BallFound("Ball Found", self)
@@ -208,6 +299,8 @@ class AutonomousNavigation(Node):
         find_ball = FindBall("Find Ball", self)
         ball_close = BallClose("Ball Close", self)
         approach_ball = ApproachBall("Approach Ball", self)
+        ball_grasped = BallGrasped("Ball Grasped", self)
+        grasp_ball = GraspBall("Grasp Ball", self)
 
         # Build the tree structure
         root = Sequence(name="Root", memory=True)
@@ -221,18 +314,19 @@ class AutonomousNavigation(Node):
         approach_sequence = Selector(name="Approach Sequence", memory=True)
         approach_sequence.add_child(ball_close)
         approach_sequence.add_child(approach_ball)
+        
+        # Sequence for grasping the ball
+        grasp_sequence = Selector(name="Grasp Sequence", memory=True)
+        grasp_sequence.add_child(ball_grasped)
+        grasp_sequence.add_child(grasp_ball)
 
         # Add sequences to the root
         root.add_child(find_sequence)
         root.add_child(approach_sequence)
+        root.add_child(grasp_sequence)
 
         return BehaviourTree(root)
-    
-    def fov_items_callback(self, msg):
-        # self.logger.info(f"FOV Items: {msg}")
-        self.fov_items = msg
-        self.fov_items.data = [item for item in self.fov_items.data if item.y >= 2 and item.y <= 4]
-    
+        
     def set_initial_pose(self):
         initial_pose = PoseStamped()
         initial_pose.header.frame_id = 'map'
@@ -315,6 +409,24 @@ def camera_model():
     
     return camera_model
 
+def get_euler_from_quaternion(quaternion):
+    x = quaternion.x
+    y = quaternion.y
+    z = quaternion.z
+    w = quaternion.w
+
+    sinr_cosp = 2 * (w * x + y * z)
+    cosr_cosp = 1 - 2 * (x * x + y * y)
+    roll = math.atan2(sinr_cosp, cosr_cosp)
+
+    sinp = 2 * (w * y - z * x)
+    pitch = math.asin(sinp)
+
+    siny_cosp = 2 * (w * z + x * y)
+    cosy_cosp = 1 - 2 * (y * y + z * z)
+    yaw = math.atan2(siny_cosp, cosy_cosp)
+
+    return roll, pitch, yaw
 
 
 def main(args=None):
