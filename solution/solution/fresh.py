@@ -8,6 +8,7 @@ from time import sleep
 import rclpy
 from rclpy.node import Node
 from rclpy.signals import SignalHandlerOptions
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 from geometry_msgs.msg import PoseStamped, Pose, Twist
@@ -48,8 +49,8 @@ ANGULAR_VELOCITY = 0.5 # 0.5
 DISTANCE_PROPRTIONAL = 0.5
 
 # LiDAR Scan Segments
-SCAN_THRESHOLD = 0.5
 DEVIATION_THRESHOLD = 1
+AVOIDANCE_THRESHOLD = 0.5
 CONSTRAINT_THRESHOLD = 0.25
 LETHAL_THRESHOLD = 0.2 # 25
 SCAN_FRONT = 0
@@ -72,12 +73,24 @@ CAMERA_POS_GAZEBO = (0.076, 0.0, 0.093)
 ACTUAL_RADIUS = 0.075
 ACTUAL_DIAMETER = ACTUAL_RADIUS * 2
 
-class BallFound(Behaviour):
+class LethalDetected(Behaviour):
+    def __init__(self, name, robot_node):
+        super(LethalDetected, self).__init__(name)
+        self.robot_node = robot_node
+
+    def update(self):
+        if self.robot_node.state == State.LETHAL:
+            return Status.FAILURE
+        
+        return Status.SUCCESS
+
+class BallFound(Behaviour): # check if the robot already has a ball
     def __init__(self, name, robot_node):
         super(BallFound, self).__init__(name)
         self.robot_node = robot_node
 
     def update(self):
+        
         if self.robot_node.ball_in_fov():
             self.logger.info(f"{len(self.robot_node.fov_items.data)} items found")
             return Status.SUCCESS
@@ -114,7 +127,7 @@ class FindBall(Behaviour):
         cmd.angular.z = 0.0
         self.robot_node.cmd_vel_publisher.publish(cmd)
 
-class BallClose(Behaviour):
+class BallClose(Behaviour): # check if the ball robot has got is the highest value among the balls in the camera view
     def __init__(self, name, robot_node):
         super(BallClose, self).__init__(name)
         self.robot_node = robot_node
@@ -162,7 +175,7 @@ class ApproachBall(Behaviour):
         self.robot_node.approach_ball(item, Z_world)
         return Status.RUNNING
 
-class BallGrasped(Behaviour):
+class BallGrasped(Behaviour): # check if ball is hoolding the highest value ball
     def __init__(self, name, robot_node):
         super(BallGrasped, self).__init__(name)
         self.robot_node = robot_node
@@ -237,7 +250,7 @@ class HomeClose(Behaviour):
         
         return Status.FAILURE
 
-class ApproachHome(Behaviour):
+class ApproachHome(Behaviour): # enroute needs to check if the home zone is visible
     def __init__(self, name, robot_node, target_position):
         super(ApproachHome, self).__init__(name)
         self.robot_node = robot_node
@@ -255,7 +268,11 @@ class ApproachHome(Behaviour):
             self.enroute = True
             return Status.RUNNING
         else:
-            if self.robot_node.navigator.isTaskComplete():
+            # if self.robot_node.state == State.CONSTRAINT:
+            #     self.robot_node.stop_moving()
+            #     self.logger.info(f"While enroute, constraint detected: {min(self.robot_node.scan[SCAN_LEFT], self.robot_node.scan[SCAN_RIGHT]):.3f}")
+            #     return Status.RUNNING
+            if self.robot_node.check_navigation_status():
                 return Status.SUCCESS
             else:
                 return Status.RUNNING
@@ -286,6 +303,7 @@ class AutonomousNavigation(Node):
     def __init__(self):
         super().__init__('autonomous_navigation', namespace='robot1')        
         self.robot_name = self.get_namespace().replace('/', '').strip()
+        self.callback_group = ReentrantCallbackGroup()
 
         # Initial Pose
         self.declare_parameter('x_pose', 0.0)
@@ -326,12 +344,12 @@ class AutonomousNavigation(Node):
         self.lidar_scan = LaserScan()
         self.scan = [0.0] * 6
         # self.triggered_distance = [0.0] * 4
-        self.fig, self.ax = plt.subplots(subplot_kw={'projection': 'polar'})
-        self.lidar_plot, = self.ax.plot([], [], 'b.')  # Initial empty plot
-        self.ax.set_theta_zero_location('N')  # Set 0 degrees to the top
-        plt.ion()  # Turn on interactive mode
-        plt.show()
-        self.last_update_time = time.time()
+        # self.fig, self.ax = plt.subplots(subplot_kw={'projection': 'polar'})
+        # self.lidar_plot, = self.ax.plot([], [], 'b.')  # Initial empty plot
+        # self.ax.set_theta_zero_location('N')  # Set 0 degrees to the top
+        # plt.ion()  # Turn on interactive mode
+        # plt.show()
+        # self.last_update_time = time.time()
         
         # Home Zone
         self.home_zone = HomeZone()
@@ -344,35 +362,40 @@ class AutonomousNavigation(Node):
             Odometry,
             'odom',
             self.odom_callback,
-            10
+            10,
+            callback_group=self.callback_group
         )
         
         self.lidiar_subscriber = self.create_subscription(
             LaserScan,
             'scan',
             self.lidar_callback,
-            QoSPresetProfiles.SENSOR_DATA.value
+            QoSPresetProfiles.SENSOR_DATA.value,
+            callback_group=self.callback_group
         )
         
         self.fov_items_subscriber = self.create_subscription(
             ItemList,
             'items',
             self.fov_items_callback,
-            10
+            10,
+            callback_group=self.callback_group
         )
         
         self.home_zone_subscriber = self.create_subscription(
             HomeZone,
             'home_zone',
             self.home_zone_callback,
-            10
+            10,
+            callback_group=self.callback_group
         )
         
         self.garbbed_item_subscriber = self.create_subscription(
             ItemHolders,
             '/item_holders',
             self.garbbed_item_callback,
-            10
+            10,
+            callback_group=self.callback_group
         )
         
         # log_tree.level = log_tree.Level.DEBUG
@@ -386,6 +409,7 @@ class AutonomousNavigation(Node):
         self.cmd_vel_publisher = self.create_publisher(Twist, 'cmd_vel', 10)
         
         self.timer_period = 0.1 # 100 milliseconds = 10 Hz
+        self.temp_logger_counter = 0
         self.controller_timer = self.create_timer(self.timer_period, self.control_loop)
     
     def odom_callback(self, msg):
@@ -398,20 +422,20 @@ class AutonomousNavigation(Node):
     def lidar_callback(self, msg):
         self.lidar_scan = msg
         
-        current_time = time.time()
-        if current_time - self.last_update_time >= 1:  # Update every second
-            angles = np.linspace(msg.angle_min, msg.angle_max, len(msg.ranges))
-            ranges = np.array(msg.ranges)
-            ranges[np.isinf(ranges)] = msg.range_max  # Replace inf with max range
+        # current_time = time.time()
+        # if current_time - self.last_update_time >= 1:  # Update every second
+        #     angles = np.linspace(msg.angle_min, msg.angle_max, len(msg.ranges))
+        #     ranges = np.array(msg.ranges)
+        #     ranges[np.isinf(ranges)] = msg.range_max  # Replace inf with max range
 
-            # Update the plot
-            self.lidar_plot.set_data(angles, ranges)
-            self.ax.relim()  # Recompute the ax.dataLim
-            self.ax.autoscale_view()  # Update axes with new data
-            plt.draw()
-            plt.pause(0.001)
+        #     # Update the plot
+        #     self.lidar_plot.set_data(angles, ranges)
+        #     self.ax.relim()  # Recompute the ax.dataLim
+        #     self.ax.autoscale_view()  # Update axes with new data
+        #     plt.draw()
+        #     plt.pause(0.001)
 
-            self.last_update_time = current_time  # Update last update time
+        #     self.last_update_time = current_time  # Update last update time
 
 
         
@@ -458,6 +482,7 @@ class AutonomousNavigation(Node):
         # return BehaviourTree(root)
         
         # Create specific behaviors
+        lethal_detected = LethalDetected("Lethal Detected", self)
         ball_found = BallFound("Ball Found", self)
         find_ball = FindBall("Find Ball", self)
         ball_close = BallClose("Ball Close", self)
@@ -497,6 +522,7 @@ class AutonomousNavigation(Node):
         place_sequence.add_child(place_ball)
 
         # Add sequences to the root
+        root.add_child(lethal_detected)
         root.add_child(find_sequence)
         root.add_child(approach_sequence)
         root.add_child(grasp_sequence)
@@ -529,6 +555,7 @@ class AutonomousNavigation(Node):
         elif self.scan[SCAN_FRONT] < LETHAL_THRESHOLD:
             self.logger.info(f"Lethal Detected: {self.scan[SCAN_FRONT]:.3f}")
             self.stop_moving()
+            self.navigator.cancelTask()
             self.navigator.backup(backup_dist=0.15, backup_speed=LINEAR_VELOCITY, time_allowance=10)
             self.log_counter = 0
             self.state = State.LETHAL
@@ -553,13 +580,16 @@ class AutonomousNavigation(Node):
         
         # self.logger.info(f"State: {self.state}")
         
-        self.logger.info(f"Front: {self.scan[SCAN_FRONT]:.3f}, Front Left: {self.scan[SCAN_FRONT_LEFT]:.3f}, Front Right: {self.scan[SCAN_FRONT_RIGHT]:.3f}, Left: {self.scan[SCAN_LEFT]:.3f}, Right: {self.scan[SCAN_RIGHT]:.3f}")
+        self.temp_logger_counter += 1
+        if self.temp_logger_counter % 20 == 0:
+            self.logger.info(f"Front: {self.scan[SCAN_FRONT]:.3f}, Front Left: {self.scan[SCAN_FRONT_LEFT]:.3f}, Front Right: {self.scan[SCAN_FRONT_RIGHT]:.3f}, Left: {self.scan[SCAN_LEFT]:.3f}, Right: {self.scan[SCAN_RIGHT]:.3f}")
+            self.temp_logger_counter = 0
         
+        self.tree.tick()
+        self.post_tick_handler()
         
         match self.state:
-            case State.AUTONOMOUS | State.CONSTRAINT:
-                self.tree.tick()
-                self.post_tick_handler()
+            # case State.AUTONOMOUS | State.CONSTRAINT:
             case State.LETHAL:
                 if not self.navigator.isTaskComplete():
                     if self.scan[SCAN_BACK] < LETHAL_THRESHOLD:
@@ -636,7 +666,7 @@ class AutonomousNavigation(Node):
             pass
         
         if angular_z_correction != 0.0:
-            self.logger.info(f"Angular Z Correction: {angular_z_correction:.3f}")
+            self.logger.info(f"Deviation Angular Z Correction: {angular_z_correction:.3f}")
         
         msg.angular.z = (item.x / 320.0) + angular_z_correction
 
@@ -655,6 +685,22 @@ class AutonomousNavigation(Node):
         goal_pose.pose = pos
         
         self.navigator.goToPose(goal_pose)
+        
+    def check_navigation_status(self):
+        try:
+            msg = Twist()
+            msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL
+            if self.scan[SCAN_FRONT_LEFT] < AVOIDANCE_THRESHOLD:
+                msg.angular.z += (TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / self.scan[SCAN_FRONT_LEFT]
+            if self.scan[SCAN_FRONT_RIGHT] < AVOIDANCE_THRESHOLD:
+                msg.angular.z += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / self.scan[SCAN_FRONT_RIGHT]
+            if msg.angular.z != 0.0:
+                self.logger.info(f"Avoidance Angular Z Correction: {msg.angular.z:.3f}")
+                self.publish_cmd_vel(msg.linear.x, msg.angular.z)
+        except ZeroDivisionError:
+            pass
+        
+        return self.navigator.isTaskComplete()
 
     def destroy_node(self):
         self.navigator.cancelTask()
@@ -712,9 +758,13 @@ def main(args=None):
     rclpy.init(args = args, signal_handler_options = SignalHandlerOptions.NO)
 
     node = AutonomousNavigation()
+    
+    # Use MultiThreadedExecutor
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
 
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     except ExternalShutdownException:
@@ -722,6 +772,16 @@ def main(args=None):
     finally:
         node.destroy_node()
         rclpy.try_shutdown()
+
+    # try:
+    #     rclpy.spin(node)
+    # except KeyboardInterrupt:
+    #     pass
+    # except ExternalShutdownException:
+    #     sys.exit(1)
+    # finally:
+    #     node.destroy_node()
+    #     rclpy.try_shutdown()
 
 
 if __name__ == '__main__':
