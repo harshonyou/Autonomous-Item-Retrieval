@@ -52,7 +52,7 @@ DISTANCE_PROPRTIONAL = 0.5
 DEVIATION_THRESHOLD = 1
 AVOIDANCE_THRESHOLD = 0.5
 CONSTRAINT_THRESHOLD = 0.25
-LETHAL_THRESHOLD = 0.2 # 25
+LETHAL_THRESHOLD = 0.225
 SCAN_FRONT = 0
 SCAN_FRONT_LEFT = 1
 SCAN_FRONT_RIGHT = 2
@@ -141,7 +141,7 @@ class BallClose(Behaviour): # check if the ball robot has got is the highest val
         if self.robot_node.grabbed_item.holding_item:
             self.logger.info(f"Item {self.robot_node.grabbed_item.item_colour} is close: {self.robot_node.grabbed_item.item_value:.2f}")
             threshold_value = self.robot_node.grabbed_item.item_value
-            fov_items = [item for item in self.robot_node.fov_items.data if item.value >= threshold_value]
+            fov_items = [item for item in self.robot_node.fov_items.data if item.value > threshold_value]
             
             if len(fov_items) == 0:
                 return Status.SUCCESS
@@ -246,7 +246,7 @@ class GraspBall(Behaviour):
             self.moved = True
 
 class HomeClose(Behaviour):
-    def __init__(self, name, robot_node, threshold=0.75):
+    def __init__(self, name, robot_node, threshold=0.9):
         super(HomeClose, self).__init__(name)
         self.robot_node = robot_node
         self.threshold = threshold
@@ -266,7 +266,7 @@ class HomeClose(Behaviour):
         return Status.FAILURE
 
 class ApproachHome(Behaviour): # enroute needs to check if the home zone is visible
-    def __init__(self, name, robot_node, target_position, threshold=0.75):
+    def __init__(self, name, robot_node, target_position, threshold=0.9):
         super(ApproachHome, self).__init__(name)
         self.robot_node = robot_node
         self.target_position = target_position
@@ -676,20 +676,28 @@ class AutonomousNavigation(Node):
     
     def approach_ball(self, item, Z_world):
         msg = Twist()
-        msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * Z_world
+        
+        x_smoothness = Z_world
+        y_smoothness = 1
+        
+        if Z_world < 0.5:
+            x_smoothness = 0.5
+            y_smoothness = Z_world
+        
         
         angular_z_correction = 0.0
         try:
             if self.scan[SCAN_FRONT_LEFT] < DEVIATION_THRESHOLD:
-                angular_z_correction += (TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL * Z_world) / self.scan[SCAN_FRONT_LEFT]
+                angular_z_correction += (TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL * y_smoothness) / self.scan[SCAN_FRONT_LEFT]
             if self.scan[SCAN_FRONT_RIGHT] < DEVIATION_THRESHOLD:
-                angular_z_correction += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL * Z_world) / self.scan[SCAN_FRONT_RIGHT]
+                angular_z_correction += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL * y_smoothness) / self.scan[SCAN_FRONT_RIGHT]
         except ZeroDivisionError:
             pass
         
         if angular_z_correction != 0.0:
             self.logger.info(f"Deviation Angular Z Correction: {angular_z_correction:.3f}")
         
+        msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * x_smoothness
         msg.angular.z = (item.x / 320.0) + angular_z_correction
 
         self.publish_cmd_vel(msg.linear.x, msg.angular.z)
