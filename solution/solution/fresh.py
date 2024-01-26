@@ -90,6 +90,8 @@ class BallFound(Behaviour): # check if the robot already has a ball
         self.robot_node = robot_node
 
     def update(self):
+        if self.robot_node.grabbed_item.holding_item:
+            return Status.SUCCESS
         
         if self.robot_node.ball_in_fov():
             self.logger.info(f"{len(self.robot_node.fov_items.data)} items found")
@@ -133,9 +135,17 @@ class BallClose(Behaviour): # check if the ball robot has got is the highest val
         self.robot_node = robot_node
         
     def update(self):
-        if self.robot_node.ball_in_fov():
+        if not self.robot_node.ball_in_fov():
             return Status.FAILURE
 
+        if self.robot_node.grabbed_item.holding_item:
+            self.logger.info(f"Item {self.robot_node.grabbed_item.item_colour} is close: {self.robot_node.grabbed_item.item_value:.2f}")
+            threshold_value = self.robot_node.grabbed_item.item_value
+            fov_items = [item for item in self.robot_node.fov_items.data if item.value >= threshold_value]
+            
+            if len(fov_items) == 0:
+                return Status.SUCCESS
+        
         item = max(self.robot_node.fov_items.data, key=self.robot_node.custom_key)
         Z_world = self.robot_node.calculate_distance_to_ball(item)
 
@@ -153,6 +163,8 @@ class ApproachBall(Behaviour):
     
     def update(self):
         if not self.robot_node.ball_in_fov():
+            if self.robot_node.grabbed_item.holding_item:
+                return Status.SUCCESS
             return Status.FAILURE
 
         item = max(self.robot_node.fov_items.data, key=self.robot_node.custom_key)
@@ -188,9 +200,14 @@ class BallGrasped(Behaviour): # check if ball is hoolding the highest value ball
             # if self.robot_node.grabbed_item.item_value < some_value:
             #     return Status.FAILURE
             if self.robot_node.ball_in_fov():
-                if self.robot_node.grabbed_item.item_value < self.robot_node.fov_items.data[0].value:
-                    self.logger.info(f"Item {self.robot_node.grabbed_item.item_colour} is not the highest value")
-                    return Status.FAILURE
+                # fov_items = [item for item in self.robot_node.fov_items.data if item.value >= threshold_value]
+                # if self.robot_node.grabbed_item.item_value < self.robot_node.fov_items.data[0].value:
+                #     self.logger.info(f"Item {self.robot_node.grabbed_item.item_colour} is not the highest value")
+                #     return Status.FAILURE
+                for item in self.robot_node.fov_items.data:
+                    if item.value > self.robot_node.grabbed_item.item_value:
+                        self.logger.info(f"Item {self.robot_node.grabbed_item.item_colour} is not the highest value")
+                        return Status.FAILURE
             
             return Status.SUCCESS
         else:
@@ -229,7 +246,7 @@ class GraspBall(Behaviour):
             self.moved = True
 
 class HomeClose(Behaviour):
-    def __init__(self, name, robot_node, threshold=0.5):
+    def __init__(self, name, robot_node, threshold=0.75):
         super(HomeClose, self).__init__(name)
         self.robot_node = robot_node
         self.threshold = threshold
@@ -243,18 +260,17 @@ class HomeClose(Behaviour):
         
         # self.robot_node.logger.info(f"Home Zone: {self.robot_node.home_zone}")
         if self.robot_node.home_zone.size > self.threshold:
-            return Status.SUCCESS
-        
-        if not self.robot_node.grabbed_item.holding_item:
-            return Status.SUCCESS
+            if not self.robot_node.grabbed_item.holding_item:
+                return Status.SUCCESS
         
         return Status.FAILURE
 
 class ApproachHome(Behaviour): # enroute needs to check if the home zone is visible
-    def __init__(self, name, robot_node, target_position):
+    def __init__(self, name, robot_node, target_position, threshold=0.75):
         super(ApproachHome, self).__init__(name)
         self.robot_node = robot_node
         self.target_position = target_position
+        self.threshold = threshold
     
     def initialise(self):
         self.enroute = False
@@ -275,6 +291,12 @@ class ApproachHome(Behaviour): # enroute needs to check if the home zone is visi
             if self.robot_node.check_navigation_status():
                 return Status.SUCCESS
             else:
+                if self.robot_node.home_zone.size > self.threshold:
+                    if not self.robot_node.grabbed_item.holding_item:
+                        self.logger.info(f"Home Zone: {self.robot_node.home_zone}")
+                        self.robot_node.stop_moving()
+                        self.robot_node.navigator.cancelTask()
+                        return Status.SUCCESS
                 return Status.RUNNING
 
 class BallPlaced(Behaviour):
@@ -659,9 +681,9 @@ class AutonomousNavigation(Node):
         angular_z_correction = 0.0
         try:
             if self.scan[SCAN_FRONT_LEFT] < DEVIATION_THRESHOLD:
-                angular_z_correction += (TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / self.scan[SCAN_FRONT_LEFT]
+                angular_z_correction += (TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL * Z_world) / self.scan[SCAN_FRONT_LEFT]
             if self.scan[SCAN_FRONT_RIGHT] < DEVIATION_THRESHOLD:
-                angular_z_correction += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / self.scan[SCAN_FRONT_RIGHT]
+                angular_z_correction += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL * Z_world) / self.scan[SCAN_FRONT_RIGHT]
         except ZeroDivisionError:
             pass
         
