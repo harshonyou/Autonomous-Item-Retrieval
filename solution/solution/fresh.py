@@ -51,12 +51,13 @@ DISTANCE_PROPRTIONAL = 0.5
 SCAN_THRESHOLD = 0.5
 DEVIATION_THRESHOLD = 1
 CONSTRAINT_THRESHOLD = 0.25
-LETHAL_THRESHOLD = 0.225
+LETHAL_THRESHOLD = 0.2 # 25
 SCAN_FRONT = 0
 SCAN_FRONT_LEFT = 1
 SCAN_FRONT_RIGHT = 2
 SCAN_LEFT = 3
 SCAN_RIGHT = 4
+SCAN_BACK = 5
 
 class State(Enum):
     AUTONOMOUS = 0
@@ -307,6 +308,7 @@ class AutonomousNavigation(Node):
         
         # State
         self.state = State.AUTONOMOUS
+        self.log_counter = 0
         
         # Camera Model
         self.camera_model:PinholeCameraModel = camera_model()
@@ -322,7 +324,7 @@ class AutonomousNavigation(Node):
         
         # Lidar Scan
         self.lidar_scan = LaserScan()
-        self.scan = [0.0] * 5
+        self.scan = [0.0] * 6
         # self.triggered_distance = [0.0] * 4
         self.fig, self.ax = plt.subplots(subplot_kw={'projection': 'polar'})
         self.lidar_plot, = self.ax.plot([], [], 'b.')  # Initial empty plot
@@ -402,9 +404,6 @@ class AutonomousNavigation(Node):
             ranges = np.array(msg.ranges)
             ranges[np.isinf(ranges)] = msg.range_max  # Replace inf with max range
 
-            # Adjust angles for the plot rotation
-            angles = np.pi / 2 - angles
-
             # Update the plot
             self.lidar_plot.set_data(angles, ranges)
             self.ax.relim()  # Recompute the ax.dataLim
@@ -421,14 +420,15 @@ class AutonomousNavigation(Node):
         front_ranges = front_left_ranges + front_right_ranges
         left_ranges = msg.ranges[45:135]
         right_ranges = msg.ranges[225:315]
+        back_ranges = msg.ranges[135:225]
         
         self.scan[SCAN_FRONT] = min(front_ranges)
         self.scan[SCAN_FRONT_LEFT] = min(front_left_ranges)
         self.scan[SCAN_FRONT_RIGHT] = min(front_right_ranges)
         self.scan[SCAN_LEFT] = min(left_ranges)
         self.scan[SCAN_RIGHT] = min(right_ranges)
-        
-            
+        self.scan[SCAN_BACK] = min(back_ranges)
+
     def fov_items_callback(self, msg):
         # self.logger.info(f"FOV Items: {msg}")
         self.fov_items = msg
@@ -524,8 +524,13 @@ class AutonomousNavigation(Node):
     # Potential States: Halt, Constraint, Avoidance, Autonomous, Lethal
 
     def state_machine(self):
-        if self.scan[SCAN_FRONT] < LETHAL_THRESHOLD:
+        if self.state == State.LETHAL:
+            return
+        elif self.scan[SCAN_FRONT] < LETHAL_THRESHOLD:
             self.logger.info(f"Lethal Detected: {self.scan[SCAN_FRONT]:.3f}")
+            self.stop_moving()
+            self.navigator.backup(backup_dist=0.15, backup_speed=LINEAR_VELOCITY, time_allowance=10)
+            self.log_counter = 0
             self.state = State.LETHAL
         elif self.scan[SCAN_LEFT] < CONSTRAINT_THRESHOLD or self.scan[SCAN_RIGHT] < CONSTRAINT_THRESHOLD:
             self.logger.info(f"Constraint Detected: {min(self.scan[SCAN_LEFT], self.scan[SCAN_RIGHT]):.3f}")
@@ -536,6 +541,11 @@ class AutonomousNavigation(Node):
     def control_loop(self):
         # self.logger.info(f"Fresh running")    
         
+        # if self.scan[SCAN_FRONT] < LETHAL_THRESHOLD:
+        #     self.logger.info(f"Lethal Detected: {self.scan[SCAN_FRONT]:.3f}")
+        
+        # return
+        
         self.state_machine()
             
         # self.tree.tick()
@@ -543,15 +553,38 @@ class AutonomousNavigation(Node):
         
         # self.logger.info(f"State: {self.state}")
         
+        self.logger.info(f"Front: {self.scan[SCAN_FRONT]:.3f}, Front Left: {self.scan[SCAN_FRONT_LEFT]:.3f}, Front Right: {self.scan[SCAN_FRONT_RIGHT]:.3f}, Left: {self.scan[SCAN_LEFT]:.3f}, Right: {self.scan[SCAN_RIGHT]:.3f}")
+        
+        
         match self.state:
             case State.AUTONOMOUS | State.CONSTRAINT:
                 self.tree.tick()
                 self.post_tick_handler()
             case State.LETHAL:
-                self.stop_moving()
-            
+                if not self.navigator.isTaskComplete():
+                    if self.scan[SCAN_BACK] < LETHAL_THRESHOLD:
+                        self.logger.info(f"Lethal Detected: {self.scan[SCAN_BACK]:.3f} on backing up, canceling task")
+                        self.navigator.cancelTask()
+                    
+                    feedback = self.navigator.getFeedback()
+                    if feedback and self.log_counter % 10 == 0:
+                        self.get_logger().info(f"Distance travelled: {feedback.distance_traveled:.2f} metres")
+                else:
+                    self.state = State.AUTONOMOUS
+                    self.log_counter = 0
+                    
+                    result = self.navigator.getResult()
+                    match result:
+                        case TaskResult.SUCCEEDED:
+                            self.get_logger().info("Backup succeeded!")
+                        case TaskResult.CANCELED:
+                            self.get_logger().info("Backup canceled!")
+                        case TaskResult.FAILED:
+                            self.get_logger().info("Backup failed!")
+                        case _:
+                            self.get_logger().info("Backup unknown result {result}!")
+
         
-        # self.logger.info(f"Front: {self.scan[SCAN_FRONT]:.3f}, Front Left: {self.scan[SCAN_FRONT_LEFT]:.3f}, Front Right: {self.scan[SCAN_FRONT_RIGHT]:.3f}, Left: {self.scan[SCAN_LEFT]:.3f}, Right: {self.scan[SCAN_RIGHT]:.3f}")
         
         # angular_z_correction = 0.0
         # Z_world = 1.0
