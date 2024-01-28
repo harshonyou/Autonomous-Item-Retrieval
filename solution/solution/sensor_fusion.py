@@ -45,6 +45,10 @@ class SensorFusion(Node):
         self.actual_radius = 0.075
         self.actual_diameter = self.actual_radius * 2
         
+        self.persistent_items = {}
+        self.item_decay_time = 0.3
+        self.skip_counter = 0
+        
         self.item_subscriber = self.create_subscription(
             ItemList,
             'items',
@@ -68,7 +72,30 @@ class SensorFusion(Node):
         Args:
             msg (ItemList): The received item list message.
         """
+        self.skip_counter += 1
+        if self.skip_counter % 10 != 0:
+            return
+        
         self.items = msg
+        
+        current_time_seconds, current_time_nanoseconds = self.get_clock().now().seconds_nanoseconds()
+        current_time = current_time_seconds + current_time_nanoseconds / 1e9
+
+        new_items = {}
+        
+        for item in msg.data:
+            item_id = f"obstacle_{item.x}_{item.y}"  # Assuming each item has a unique identifier
+            new_items[item_id] = {
+                'item': item,
+                'last_seen': current_time
+            }
+
+        self.persistent_items.update(new_items)
+        
+        self.persistent_items = {
+            item_id: item_data for item_id, item_data in self.persistent_items.items()
+            if current_time - item_data['last_seen'] <= self.item_decay_time
+        }
 
     def scan_callback(self, msg: LaserScan):
         """
@@ -80,14 +107,11 @@ class SensorFusion(Node):
         Args:
             msg (LaserScan): The received laser scan message.
         """
-        # Skip update if no items are detected
-        # This is to not update local costmap if items get out of sight
-        if len(self.items.data) == 0:
-            return
-        
         depth_arrs = []
         
-        for item in self.items.data:
+        for value in self.persistent_items.values():
+            item = value['item']
+            
             # Extract x and y coordinates of the item
             x = item.x
             y = item.y
@@ -112,7 +136,9 @@ class SensorFusion(Node):
             depth_arrs.append(depth_arr)
         
         # If there's only one depth array, use it as the minimum values
-        if len(depth_arrs) == 1:
+        if len(depth_arrs) == 0:
+            return
+        elif len(depth_arrs) == 1:
             min_values = depth_arrs[0]
         else:
             # Otherwise, stack the depth arrays and find the minimum values along the first axis
