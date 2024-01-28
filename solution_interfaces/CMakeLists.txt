@@ -17,6 +17,11 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Example.msg"
   "msg/StateMarker.msg"
+  "msg/ProcessedItem.msg"
+  "msg/ProcessedItemList.msg"
+  "msg/Peers.msg"
+  "msg/PeersList.msg"
+  "msg/Halt.msg"
   DEPENDENCIES geometry_msgs # Add packages that above messages depend on, in this case geometry_msgs for Example.msg
   DEPENDENCIES std_msgs
 )
