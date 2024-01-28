@@ -8,7 +8,7 @@ import numpy as np
 from std_msgs.msg import Header, Bool
 from geometry_msgs.msg import PoseWithCovarianceStamped
 
-from solution_interfaces.msg import Peers, PeersList
+from solution_interfaces.msg import Peers, PeersList, Halt
 
 SAFE_DISTANCE = 0.75  # Safe distance threshold
 
@@ -39,6 +39,7 @@ class TrafficManager(Node):
         self.peers_publishers = {}
         self.halt_publishers = {}
         self.odom_data = {}
+        self.halt_status = {}
 
         # Setting up subscriptions and publishers for each robot
         for i in range(1, self.num_robots + 1):
@@ -55,14 +56,13 @@ class TrafficManager(Node):
                 PeersList, f'/{robot_name}/peers', 10)
             
             self.halt_publishers[robot_name] = self.create_publisher(
-                Bool, f'/{robot_name}/halt', 10)
+                Halt, f'/{robot_name}/halt', 10)
             
             self.odom_data[robot_name] = Odometry()
             
+            self.halt_status[robot_name] = False
+            
         self.default_odometry()
-        
-        self.true = Bool(data=True)
-        self.false = Bool(data=False) 
         
         self.timer_period = 0.1 # 100 milliseconds = 10 Hz
         self.controller_timer = self.create_timer(self.timer_period, self.control_loop)
@@ -94,17 +94,23 @@ class TrafficManager(Node):
                 if distance < SAFE_DISTANCE:
                     robot_to_halt = robot1_name if i < j else robot2_name
                     robots_to_halt.add(robot_to_halt)
-                    self.get_logger().info(f"Distance between {robot1_name} and {robot2_name}: {distance}, Halting {robot_to_halt}")
+                    # self.get_logger().info(f"Distance between {robot1_name} and {robot2_name}: {distance}, Halting {robot_to_halt}")
 
-        # Send halt commands
-        for robot_name in robots_to_halt:
-            self.halt_publishers[robot_name].publish(self.true)
-        
-        # Ensure other robots are not halted
-        for i in range(1, self.num_robots + 1):
-            robot_name = f'robot{i}'
-            if robot_name not in robots_to_halt:
-                self.halt_publishers[robot_name].publish(self.false)
+        for robot_name in self.halt_status:
+            if robot_name in robots_to_halt and not self.halt_status[robot_name]:
+                self.get_logger().info(f"Halting {robot_name}")
+                halt = Halt()
+                halt.status = True
+                halt.message = f"Robot {robot_name} is too close to another robot."
+                self.halt_publishers[robot_name].publish(halt)
+                self.halt_status[robot_name] = True
+            elif robot_name not in robots_to_halt and self.halt_status[robot_name]:
+                self.get_logger().info(f"Resuming {robot_name}")
+                halt = Halt()
+                halt.status = False
+                halt.message = f"Robot {robot_name} is not too close to another robot."
+                self.halt_publishers[robot_name].publish(halt)
+                self.halt_status[robot_name] = False
             
         self.process_and_publish()
 
