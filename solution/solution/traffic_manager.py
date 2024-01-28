@@ -8,6 +8,7 @@ import numpy as np
 from std_msgs.msg import Header, Bool
 from geometry_msgs.msg import PoseWithCovarianceStamped
 
+from assessment_interfaces.msg import ItemHolders, ItemHolder
 from solution_interfaces.msg import Peers, PeersList, Halt
 
 SAFE_DISTANCE = 0.75  # Safe distance threshold
@@ -40,6 +41,7 @@ class TrafficManager(Node):
         self.halt_publishers = {}
         self.odom_data = {}
         self.halt_status = {}
+        self.robot_item_values = {}
 
         # Setting up subscriptions and publishers for each robot
         for i in range(1, self.num_robots + 1):
@@ -62,10 +64,24 @@ class TrafficManager(Node):
             
             self.halt_status[robot_name] = False
             
+            self.robot_item_values[robot_name] = 0
+        
+        self.item_holders_subscriber = self.create_subscription(
+            ItemHolders,
+            '/item_holders',
+            self.item_holders_callback,
+            10,
+        )
+         
         self.default_odometry()
         
         self.timer_period = 0.1 # 100 milliseconds = 10 Hz
         self.controller_timer = self.create_timer(self.timer_period, self.control_loop)
+
+    def item_holders_callback(self, msg):
+        """Callback function for item holders data."""
+        for data in msg.data:
+            self.robot_item_values[data.robot_id] = data.item_value
 
     def odom_callback(self, msg, robot_name):
         """Callback function for odometry data.
@@ -90,11 +106,23 @@ class TrafficManager(Node):
                 dy = self.odom_data[robot1_name].pose.pose.position.y - self.odom_data[robot2_name].pose.pose.position.y
                 distance = np.sqrt(dx ** 2 + dy ** 2)
 
-                # If the distance is less than the safe distance, add the robot with the lower number (priority) to the halt set
+                # If the distance is less than the safe distance, determine which robot to halt based on item value and number
                 if distance < SAFE_DISTANCE:
-                    robot_to_halt = robot1_name if i < j else robot2_name
+                    # Compare item values
+                    item_value_robot1 = self.robot_item_values[robot1_name]
+                    item_value_robot2 = self.robot_item_values[robot2_name]
+
+                    if item_value_robot1 > item_value_robot2:
+                        robot_to_halt = robot2_name
+                    elif item_value_robot1 < item_value_robot2:
+                        robot_to_halt = robot1_name
+                    else:
+                        # If item values are equal, use robot number as tiebreaker
+                        robot_to_halt = robot1_name if i < j else robot2_name
+
                     robots_to_halt.add(robot_to_halt)
                     # self.get_logger().info(f"Distance between {robot1_name} and {robot2_name}: {distance}, Halting {robot_to_halt}")
+
 
         for robot_name in self.halt_status:
             if robot_name in robots_to_halt and not self.halt_status[robot_name]:
