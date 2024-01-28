@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import time
 
-from solution_interfaces.msg import StateMarker, ProcessedItem, ProcessedItemList
+from solution_interfaces.msg import StateMarker, ProcessedItem, ProcessedItemList, Peers, PeersList
 
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
@@ -378,6 +378,9 @@ class AutonomousNavigation(Node):
         # Grabbed Item
         self.grabbed_item = ItemHolder()
         
+        # Peers
+        self.peers = PeersList()
+        
         # Subscribers
         self.odom_subscriber = self.create_subscription(
             Odometry,
@@ -415,6 +418,14 @@ class AutonomousNavigation(Node):
             ItemHolders,
             '/item_holders',
             self.garbbed_item_callback,
+            10,
+            callback_group=self.callback_group
+        )
+        
+        self.peers_subscriber = self.create_subscription(
+            PeersList,
+            'tf_peers',
+            self.peers_callback,
             10,
             callback_group=self.callback_group
         )
@@ -488,6 +499,9 @@ class AutonomousNavigation(Node):
             if item_holder.robot_id == self.robot_name:
                 self.grabbed_item = item_holder
                 break
+    
+    def peers_callback(self, msg:PeersList):
+        self.peers = msg.data
     
     def create_behavior_tree(self):
         # # Create specific behaviors
@@ -568,8 +582,6 @@ class AutonomousNavigation(Node):
         with open("behavior_tree.txt", "w") as file:
             tree_ascii = unicode_tree(self.tree.root)
             file.write(tree_ascii)
-
-    # Potential States: Halt, Constraint, Avoidance, Autonomous, Lethal
 
     def state_machine(self):
         if self.state == State.LETHAL:
@@ -700,6 +712,9 @@ class AutonomousNavigation(Node):
         w_value = 1.0
         w_diameter = 0.5
         return w_value * item.value / 15.0 + w_diameter * item.diameter / 640.0
+    
+    def calculate_distance(self, x1, y1, x2, y2):
+        return ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
     
     def calculate_distance_to_ball(self, item):
         diameter_pixels = item.diameter
