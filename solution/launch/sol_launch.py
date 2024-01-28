@@ -4,7 +4,7 @@ import yaml
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription, LaunchContext
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, GroupAction, OpaqueFunction
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, GroupAction, LogInfo, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, PushRosNamespace, SetRemap, SetParameter
@@ -62,10 +62,34 @@ def robot_controller_actions(context : LaunchContext):
             Node(
                 package='solution',
                 output='screen',
-                executable='autonomous_navigation',
-                name='autonomous_navigation',
-                parameters=[{'x_pose': pos['x'], 'y_pose': pos['y'], 'yaw': pos['yaw']}]
+                executable='transformer',
+                name='transformer',
             ),
+            
+            Node(
+                package='robot_localization',
+                output='screen',
+                executable='ekf_node',
+                name='ekf_filter_node',
+                parameters=['/home/aei/kmy/src/solution/param/ekf.yaml'],
+                remappings=[('odometry/filtered', 'odometry/local')],
+            )
+            
+            # Node(
+            #     package='solution',
+            #     output='screen',
+            #     executable='autonomous_navigation',
+            #     name='autonomous_navigation',
+            #     parameters=[{'x_pose': pos['x'], 'y_pose': pos['y'], 'yaw': pos['yaw']}]
+            # ),
+            
+            # Node(
+            #     package='solution',
+            #     output='screen',
+            #     executable='fresh',
+            #     name='fresh',
+            #     parameters=[{'x_pose': pos['x'], 'y_pose': pos['y'], 'yaw': pos['yaw']}]
+            # ),
         ])
 
         actions.append(group)
@@ -83,7 +107,12 @@ def generate_launch_description():
             default_value='1',
             description='Number of robots to spawn')
 
-    assessment_launch = IncludeLaunchDescription(
+    assessment_launch = GroupAction([
+        # SetRemap('/robot1/cmd_vel', '/robot1/mock/cmd_vel'),
+        
+        LogInfo(msg=["Launching assessment"]),
+        
+        IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(launch_file_dir, 'assessment_launch.py')
         ),
@@ -97,14 +126,15 @@ def generate_launch_description():
             'params_file': '/home/aei/kmy/src/solution/params/sol.yml',
             }.items()
     )
-    
-    # traffic_manager=Node(
-    #     package='solution',
-    #     output='screen',
-    #     executable='traffic_manager',
-    #     name='traffic_manager',
-    #     parameters=[{'num_robots': num_robots}],
-    # )
+    ])
+
+    traffic_manager=Node(
+        package='solution',
+        output='screen',
+        executable='traffic_manager',
+        name='traffic_manager',
+        parameters=[{'num_robots': num_robots}],
+    )
     
     robot_controller_cmd = OpaqueFunction(function=robot_controller_actions)
 
@@ -113,9 +143,9 @@ def generate_launch_description():
     
     ld.add_action(SetParameter(name='use_sim_time', value=True))
     
-    # ld.add_action(traffic_manager)
-    
     ld.add_action(declare_num_robots_cmd)
+    
+    ld.add_action(traffic_manager)
 
     # Add the commands to the launch description
     ld.add_action(assessment_launch)
