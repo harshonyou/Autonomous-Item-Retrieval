@@ -13,6 +13,8 @@ from std_msgs.msg import Header
 import numpy as np
 import struct
 
+from solution_interfaces.msg import ProcessedItem, ProcessedItemList
+
 class ItemsToPointCloud(Node):
     """Node for converting detected items into a point cloud.
 
@@ -38,7 +40,8 @@ class ItemsToPointCloud(Node):
 
         self.get_logger().info('Detect Ball 3D Node Started')
 
-        self.items_subscriber  = self.create_subscription(ItemList,"items",self.items_callback, 10)
+        self.items_subscriber  = self.create_subscription(ItemList, "items", self.items_callback, 10)
+        self.items_publisher = self.create_publisher(ProcessedItemList, "processed_items", 1)
         self.pointcloud_publisher = self.create_publisher(PointCloud2, "items_pointcloud", 1)
 
         self.camera_frame = "camera_link"
@@ -63,6 +66,7 @@ class ItemsToPointCloud(Node):
         
         # Initialize an empty list to store points
         points = []
+        processed_items = []
         
         for i, item in enumerate(items.data):
             # Normalize the x and y coordinates of the item
@@ -90,8 +94,21 @@ class ItemsToPointCloud(Node):
             sphere_center_y = p.y = x
             sphere_center_z = p.z = 0.0
             
+            
+            processed_item = ProcessedItem()
+            processed_item.x = item.x
+            processed_item.y = item.y
+            processed_item.diameter = item.diameter
+            processed_item.colour = item.colour
+            processed_item.value = item.value
+            processed_item.x_coord = sphere_center_x
+            processed_item.y_coord = sphere_center_y
+            processed_item.distance = d
+            
+            processed_items.append(processed_item)
+            
             # Set the radius of the point cloud sphere
-            sphere_radius = 0.075
+            sphere_radius = 0.01
             
             # Set the RGB values based on the color of the item
             if item.colour == "RED":
@@ -114,10 +131,15 @@ class ItemsToPointCloud(Node):
                     # Append each point to the points list
                     points.append([sphere_center_x + dx, sphere_center_y + dy, sphere_center_z + dz, rgb])
 
-        
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = self.camera_frame
+        
+        processed_item_list = ProcessedItemList()
+        processed_item_list.header = header
+        processed_item_list.data = processed_items
+        self.items_publisher.publish(processed_item_list)
+        
 
         # Define the fields for the point cloud
         fields = [PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
