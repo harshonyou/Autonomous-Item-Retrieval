@@ -168,7 +168,7 @@ class ApproachBall(Behaviour):
 
         item = max(self.robot_node.fov_items.data, key=self.robot_node.custom_key)
         Z_world = self.robot_node.calculate_distance_to_ball(item)
-
+        
         if Z_world < 0.3:
             # Stop moving if close enough
             self.robot_node.stop_moving()
@@ -399,8 +399,8 @@ class AutonomousNavigation(Node):
         )
         
         self.fov_items_subscriber = self.create_subscription(
-            ItemList,
-            'items',
+            ProcessedItemList,
+            'tf_processed_items',
             self.fov_items_callback,
             10,
             callback_group=self.callback_group
@@ -487,7 +487,6 @@ class AutonomousNavigation(Node):
         self.scan[SCAN_BACK] = min(back_ranges)
 
     def fov_items_callback(self, msg):
-        # self.logger.info(f"FOV Items: {msg}")
         self.fov_items = msg
         self.fov_items.data = [item for item in self.fov_items.data if item.y >= 2 and item.y <= 4]
 
@@ -501,7 +500,9 @@ class AutonomousNavigation(Node):
                 break
     
     def peers_callback(self, msg:PeersList):
-        self.peers = msg.data
+        self.peers = msg
+        self.peers.data = msg.data
+        
     
     def create_behavior_tree(self):
         # # Create specific behaviors
@@ -667,8 +668,11 @@ class AutonomousNavigation(Node):
                         self.navigator.cancelTask()
                     
                     feedback = self.navigator.getFeedback()
-                    if feedback and self.log_counter % 10 == 0:
-                        self.get_logger().info(f"Distance travelled: {feedback.distance_traveled:.2f} metres")
+                    try:
+                        if feedback and self.log_counter % 10 == 0:
+                            self.get_logger().info(f"Distance travelled: {feedback.distance_traveled:.2f} metres")
+                    except AttributeError:
+                        self.logger.info(f"Feedback: {feedback}")
                 else:
                     self.state = State.AUTONOMOUS
                     self.log_counter = 0
@@ -711,7 +715,27 @@ class AutonomousNavigation(Node):
     def custom_key(self, item):
         w_value = 1.0
         w_diameter = 0.5
-        return w_value * item.value / 15.0 + w_diameter * item.diameter / 640.0
+        w_distance = 0.2
+        w_proximity_to_peers = 0.3
+        
+        # Normalize value and diameter as before
+        normalized_value = w_value * item.value / 15.0
+        normalized_diameter = w_diameter * item.diameter / 640.0
+        
+        # Normalize distance (assuming a maximum relevant distance, adjust as needed)
+        max_distance = 8.5  # Diamter of 6x6 map (1x6 is safe zone)
+        normalized_distance = (max_distance - item.distance) / max_distance
+
+        peer_proximity_penalty = 0
+        for peer in self.peers.data:
+            distance_to_peer = self.calculate_distance(item.x_coord, item.y_coord, peer.x_coord, peer.y_coord)
+            if distance_to_peer < 3.5:  # Example proximity threshold
+                # Scale penalty based on distance (closer items receive a higher penalty)
+                penalty = w_proximity_to_peers * (1 - distance_to_peer / 3.5)
+                peer_proximity_penalty += penalty
+        
+        priority = normalized_value + normalized_diameter + (w_distance * normalized_distance) - peer_proximity_penalty
+        return priority
     
     def calculate_distance(self, x1, y1, x2, y2):
         return ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
