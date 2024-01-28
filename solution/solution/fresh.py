@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import time
 
-from solution_interfaces.msg import StateMarker, ProcessedItem, ProcessedItemList, Peers, PeersList
+from solution_interfaces.msg import StateMarker, ProcessedItem, ProcessedItemList, Peers, PeersList, Halt
 
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
@@ -381,6 +381,9 @@ class AutonomousNavigation(Node):
         # Peers
         self.peers = PeersList()
         
+        # Halt
+        self.halted = False
+        
         # Subscribers
         self.odom_subscriber = self.create_subscription(
             Odometry,
@@ -426,6 +429,14 @@ class AutonomousNavigation(Node):
             PeersList,
             'tf_peers',
             self.peers_callback,
+            10,
+            callback_group=self.callback_group
+        )
+        
+        self.halt_subscriber = self.create_subscription(
+            Halt,
+            'halt',
+            self.halt_callback,
             10,
             callback_group=self.callback_group
         )
@@ -503,6 +514,11 @@ class AutonomousNavigation(Node):
         self.peers = msg
         self.peers.data = msg.data
         
+    def halt_callback(self, msg):
+        if msg.status:
+            self.halted = True
+        else:
+            self.halted = False
     
     def create_behavior_tree(self):
         # # Create specific behaviors
@@ -587,6 +603,13 @@ class AutonomousNavigation(Node):
     def state_machine(self):
         if self.state == State.LETHAL:
             return
+        elif self.halted:
+            if self.state == State.HALT:
+                return
+            self.logger.info(f"Robot {self.robot_name} is halted")
+            self.stop_moving()
+            self.navigator.cancelTask()
+            self.state = State.HALT
         elif self.scan[SCAN_FRONT] < LETHAL_THRESHOLD:
             self.logger.info(f"Lethal Detected: {self.scan[SCAN_FRONT]:.3f}")
             self.stop_moving()
@@ -645,6 +668,10 @@ class AutonomousNavigation(Node):
         
         self.state_machine()
         self.post_state_machine()
+        
+        if self.state == State.HALT:
+            sleep(1)
+            return
             
         # self.tree.tick()
         # self.post_tick_handler()
