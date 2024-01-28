@@ -1,4 +1,3 @@
-# enroute pauses when backing up
 import math
 import random
 import sys
@@ -25,7 +24,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import time
 
-from solution_interfaces.msg import StateMarker
+from solution_interfaces.msg import StateMarker, ProcessedItem, ProcessedItemList
 
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
@@ -429,6 +428,7 @@ class AutonomousNavigation(Node):
         
         # Publishers
         self.cmd_vel_publisher = self.create_publisher(Twist, 'cmd_vel', 10)
+        self.marker_publisher = self.create_publisher(StateMarker, 'raw_state_marker', 10)
         
         self.timer_period = 0.1 # 100 milliseconds = 10 Hz
         self.temp_logger_counter = 0
@@ -586,7 +586,42 @@ class AutonomousNavigation(Node):
             self.state = State.CONSTRAINT
         else:
             self.state = State.AUTONOMOUS
-
+    
+    def post_state_machine(self):
+        marker = StateMarker()
+        marker.text = str(self.state)
+        marker.color.a = 1.0
+        marker.pose = self.pose
+        
+        match self.state:
+            case State.AUTONOMOUS:
+                marker.color.r = 0.0
+                marker.color.g = 1.0
+                marker.color.b = 0.0
+            case State.AVOIDANCE:
+                marker.color.r = 1.0
+                marker.color.g = 1.0
+                marker.color.b = 0.0
+            case State.CONSTRAINT:
+                marker.color.r = 1.0
+                marker.color.g = 0.0
+                marker.color.b = 0.0
+            case State.LETHAL:
+                marker.color.r = 1.0
+                marker.color.g = 0.0
+                marker.color.b = 1.0
+            case State.HALT:
+                marker.color.r = 0.0
+                marker.color.g = 0.0
+                marker.color.b = 0.0
+            case _:
+                marker.color.r = 0.0
+                marker.color.g = 0.0
+                marker.color.b = 0.0
+        
+        self.marker_publisher.publish(marker)
+        
+    
     def control_loop(self):
         # self.logger.info(f"Fresh running")    
         
@@ -596,6 +631,7 @@ class AutonomousNavigation(Node):
         # return
         
         self.state_machine()
+        self.post_state_machine()
             
         # self.tree.tick()
         # self.post_tick_handler()
