@@ -788,11 +788,17 @@ class AutonomousNavigation(Node):
         
         
         angular_z_correction = 0.0
+        linear_x_correction = 1.0
+        
+        
         try:
             if self.scan[SCAN_FRONT_LEFT] < DEVIATION_THRESHOLD:
                 angular_z_correction += (TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL * y_smoothness) / self.scan[SCAN_FRONT_LEFT]
+                linear_x_correction = min(linear_x_correction, 1 - np.exp(-self.scan[SCAN_FRONT_LEFT] / DEVIATION_THRESHOLD))
             if self.scan[SCAN_FRONT_RIGHT] < DEVIATION_THRESHOLD:
                 angular_z_correction += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL * y_smoothness) / self.scan[SCAN_FRONT_RIGHT]
+                linear_x_correction = min(linear_x_correction, 1 - np.exp(-self.scan[SCAN_FRONT_RIGHT] / DEVIATION_THRESHOLD))
+
         except ZeroDivisionError:
             pass
         
@@ -800,6 +806,7 @@ class AutonomousNavigation(Node):
             self.logger.info(f"Deviation Angular Z Correction: {angular_z_correction:.3f}")
         
         msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * x_smoothness
+        msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * x_smoothness * linear_x_correction
         msg.angular.z = (item.x / 320.0) + angular_z_correction
 
         self.publish_cmd_vel(msg.linear.x, msg.angular.z)
