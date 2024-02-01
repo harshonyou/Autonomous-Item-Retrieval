@@ -45,7 +45,8 @@ TURN_RIGHT = -1
 # Robot Movement
 LINEAR_VELOCITY = 0.11 # 0.3
 ANGULAR_VELOCITY = 0.5 # 0.5
-DISTANCE_PROPRTIONAL = 0.75
+LINEAR_DISTANCE_PROPRTIONAL = 0.75
+ANGULAR_DISTANCE_PROPRTIONAL = 0.80
 DEVIATION_SMOOTHNESS_THRESHOLD = 0.5
 MIN_X_SMOOTHNESS = 0.5
 
@@ -235,7 +236,7 @@ class GraspBall(Behaviour):
 
     def move_forward(self, distance):
         msg = Twist()
-        msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL
+        msg.linear.x = LINEAR_VELOCITY * LINEAR_DISTANCE_PROPRTIONAL
         self.robot_node.cmd_vel_publisher.publish(msg)
         
         difference_x = self.robot_node.pose.position.x - self.pose.position.x
@@ -814,11 +815,11 @@ class AutonomousNavigation(Node):
         
         try:
             if self.scan[SCAN_FRONT_LEFT] < DEVIATION_THRESHOLD:
-                angular_z_correction += (TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL * y_smoothness) / self.scan[SCAN_FRONT_LEFT]
+                angular_z_correction += (TURN_RIGHT * ANGULAR_VELOCITY * ANGULAR_DISTANCE_PROPRTIONAL * y_smoothness) / self.scan[SCAN_FRONT_LEFT]
                 # distance_ratio_left = max(0, (DEVIATION_THRESHOLD - self.scan[SCAN_FRONT_LEFT]) / DEVIATION_THRESHOLD)
                 # linear_x_correction = min(linear_x_correction, np.exp(-scaling_factor * distance_ratio_left))
             if self.scan[SCAN_FRONT_RIGHT] < DEVIATION_THRESHOLD:
-                angular_z_correction += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL * y_smoothness) / self.scan[SCAN_FRONT_RIGHT]
+                angular_z_correction += (TURN_LEFT * ANGULAR_VELOCITY * ANGULAR_DISTANCE_PROPRTIONAL * y_smoothness) / self.scan[SCAN_FRONT_RIGHT]
                 # distance_ratio_right = max(0, (DEVIATION_THRESHOLD - self.scan[SCAN_FRONT_RIGHT]) / DEVIATION_THRESHOLD)
                 # linear_x_correction = min(linear_x_correction, np.exp(-scaling_factor * distance_ratio_right))
         except ZeroDivisionError:
@@ -830,7 +831,7 @@ class AutonomousNavigation(Node):
         # if linear_x_correction != 1.0:
         #     self.logger.info(f"Deviation Linear Speed Correction: {linear_x_correction:.3f}")
             
-        msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * x_smoothness
+        msg.linear.x = LINEAR_VELOCITY * LINEAR_DISTANCE_PROPRTIONAL * x_smoothness
         msg.angular.z = (item.x / 320.0) + angular_z_correction
 
         self.publish_cmd_vel(msg.linear.x, msg.angular.z)
@@ -854,16 +855,16 @@ class AutonomousNavigation(Node):
             msg = Twist()
             
             if self.scan[SCAN_FRONT_LEFT] < AVOIDANCE_THRESHOLD:
-                msg.angular.z += (TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / self.scan[SCAN_FRONT_LEFT]
+                msg.angular.z += (TURN_RIGHT * ANGULAR_VELOCITY * ANGULAR_DISTANCE_PROPRTIONAL) / self.scan[SCAN_FRONT_LEFT]
                 # distance_ratio_left = max(0, (DEVIATION_THRESHOLD - self.scan[SCAN_FRONT_LEFT]) / DEVIATION_THRESHOLD)
                 # linear_x_correction = min(linear_x_correction, np.exp(-scaling_factor * distance_ratio_left))
             if self.scan[SCAN_FRONT_RIGHT] < AVOIDANCE_THRESHOLD:
-                msg.angular.z += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / self.scan[SCAN_FRONT_RIGHT]
+                msg.angular.z += (TURN_LEFT * ANGULAR_VELOCITY * ANGULAR_DISTANCE_PROPRTIONAL) / self.scan[SCAN_FRONT_RIGHT]
                 # distance_ratio_right = max(0, (DEVIATION_THRESHOLD - self.scan[SCAN_FRONT_RIGHT]) / DEVIATION_THRESHOLD)
                 # linear_x_correction = min(linear_x_correction, np.exp(-scaling_factor * distance_ratio_right))
             if msg.angular.z != 0.0:
                 x_smoothness = MIN_X_SMOOTHNESS
-                msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * x_smoothness
+                msg.linear.x = LINEAR_VELOCITY * LINEAR_DISTANCE_PROPRTIONAL * x_smoothness
                 self.logger.info(f"Avoidance Angular Z Correction: {msg.angular.z:.3f} and Linear Speed Correction: {x_smoothness:.3f}")
                 self.publish_cmd_vel(msg.linear.x, msg.angular.z)
         except ZeroDivisionError:

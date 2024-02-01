@@ -11,7 +11,7 @@ from geometry_msgs.msg import PoseWithCovarianceStamped
 from assessment_interfaces.msg import ItemHolders, ItemHolder
 from solution_interfaces.msg import Peers, PeersList, Halt
 
-SAFE_DISTANCE = 0.75  # Safe distance threshold
+SAFE_DISTANCE = 0.9  # Safe distance threshold
 
 class TrafficManager(Node):
     """Node for managing traffic among a group of robots.

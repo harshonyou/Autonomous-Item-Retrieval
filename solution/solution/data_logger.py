@@ -68,6 +68,7 @@ class DataLogger(Node):
         self.linear_accel_sums = {}
         self.linear_accel_counts = {}
         
+        self.odoms = {}
         self.locations = {}
         self.robot_stamp = {}
         
@@ -98,6 +99,7 @@ class DataLogger(Node):
             self.linear_accel_sums[robot_name] = 0.0
             self.linear_accel_counts[robot_name] = 0
             
+            self.odoms[robot_name] = Odometry()
             self.locations[robot_name] = GeoPose()
             self.robot_stamp[robot_name] = Time()
             
@@ -127,6 +129,7 @@ class DataLogger(Node):
         
     
     def odom_callback(self, msg, robot_name):
+        self.odoms[robot_name] = msg
         self.velocity_sums[robot_name] += msg.twist.twist.linear.x
         self.angular_velocity_sums[robot_name] += msg.twist.twist.angular.z
         self.velocity_counts[robot_name] += 1
@@ -157,14 +160,14 @@ class DataLogger(Node):
                 f'Could not transform {namespaced_source_frame} to {namespaced_target_frame}: {ex}')
             return
         
-        self.locations[robot_name].position.latitude = transform.transform.translation.x
-        self.locations[robot_name].position.longitude = transform.transform.translation.y
-        self.locations[robot_name].position.altitude = transform.transform.translation.z
+        self.locations[robot_name].position.latitude = self.odoms[robot_name].pose.pose.position.x + transform.transform.translation.x
+        self.locations[robot_name].position.longitude = self.odoms[robot_name].pose.pose.position.y + transform.transform.translation.y
+        self.locations[robot_name].position.altitude = self.odoms[robot_name].pose.pose.position.z + transform.transform.translation.z
         
-        self.locations[robot_name].orientation.x = transform.transform.rotation.x
-        self.locations[robot_name].orientation.y = transform.transform.rotation.y
-        self.locations[robot_name].orientation.z = transform.transform.rotation.z
-        self.locations[robot_name].orientation.w = transform.transform.rotation.w
+        self.locations[robot_name].orientation.x = self.odoms[robot_name].pose.pose.orientation.x + transform.transform.rotation.x
+        self.locations[robot_name].orientation.y = self.odoms[robot_name].pose.pose.orientation.y + transform.transform.rotation.y
+        self.locations[robot_name].orientation.z = self.odoms[robot_name].pose.pose.orientation.z + transform.transform.rotation.z
+        self.locations[robot_name].orientation.w = self.odoms[robot_name].pose.pose.orientation.w + transform.transform.rotation.w
     
     def flush_all(self):
         self.item_log_file.flush()

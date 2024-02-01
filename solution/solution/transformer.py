@@ -40,13 +40,12 @@ class Transformer(Node):
         
 
     def peers_callback(self, peers:PeersList):
-        timestamp = self.get_clock().now()
         namespaced_source_frame = f"{self.get_namespace().strip('/')}/{peers.header.frame_id}"
         
         
         # Try to get the transform from the source frame to the target frame
         try:
-            transform = self.tf_buffer.lookup_transform(self.namespaced_target_frame, namespaced_source_frame, timestamp)
+            transform = self.tf_buffer.lookup_transform(self.namespaced_target_frame, namespaced_source_frame, peers.header.stamp)
 
         except TransformException as ex:
             # If the transform could not be found, log the error and return
@@ -63,12 +62,11 @@ class Transformer(Node):
         self.peers_publisher.publish(peers)
     
     def processed_items_callback(self, processed_items: ProcessedItemList):
-        timestamp = self.get_clock().now()
         namespaced_source_frame = f"{self.get_namespace().strip('/')}/{processed_items.header.frame_id}"
         
         # Try to get the transform from the source frame to the target frame
         try:
-            transform = self.tf_buffer.lookup_transform(self.namespaced_target_frame, namespaced_source_frame, timestamp)
+            transform = self.tf_buffer.lookup_transform(self.namespaced_target_frame, namespaced_source_frame, processed_items.header.stamp)
 
         except TransformException as ex:
             # If the transform could not be found, log the error and return
