@@ -42,31 +42,18 @@ DEFAULT_POSE_ORIENTATION_W = 0.99
 TURN_LEFT = 1
 TURN_RIGHT = -1
 
-# Notes
-# .75 DP around 50P - 5mt
-# 1. DP around 50P - 4m
-
-# 1. DP with 1.5 lv around 65P - 5m
-# 1. DP with .2 lv and .75 av around 70P - 5m
-
-# LINEAR_VELOCITY = 0.175 # 0.26 # 0.1
-# ANGULAR_VELOCITY = 0.5
-# DISTANCE_PROPRTIONAL = 0.75 # 1 # 0.5
-
-# DEVIATION_SMOOTHNESS_THRESHOLD = 0.5
-
 # Robot Movement
-LINEAR_VELOCITY = .2 #0.175 # 0.26 # 0.1
-ANGULAR_VELOCITY = 0.65
-DISTANCE_PROPRTIONAL = 1 # 0.75 # 1 # 0.5
-
+LINEAR_VELOCITY = 0.11 # 0.3
+ANGULAR_VELOCITY = 0.5 # 0.5
+DISTANCE_PROPRTIONAL = 0.75
 DEVIATION_SMOOTHNESS_THRESHOLD = 0.5
+MIN_X_SMOOTHNESS = 0.5
 
 # LiDAR Scan Segments
-DEVIATION_THRESHOLD = 1.25
-AVOIDANCE_THRESHOLD = 0.75
-CONSTRAINT_THRESHOLD = 0.3
-LETHAL_THRESHOLD = 0.25 #25
+DEVIATION_THRESHOLD = 0.75
+AVOIDANCE_THRESHOLD = 0.5
+CONSTRAINT_THRESHOLD = 0.275
+LETHAL_THRESHOLD = 0.25
 SCAN_FRONT = 0
 SCAN_FRONT_LEFT = 1
 SCAN_FRONT_RIGHT = 2
@@ -777,7 +764,7 @@ class AutonomousNavigation(Node):
         w_value = 1.0
         w_diameter = 0.5
         w_distance = 0.2
-        w_proximity_to_peers = 0.3
+        w_proximity_to_peers = 0.5
         
         # Normalize value and diameter as before
         normalized_value = w_value * item.value / 15.0
@@ -817,33 +804,33 @@ class AutonomousNavigation(Node):
         y_smoothness = 1
         
         if Z_world < DEVIATION_SMOOTHNESS_THRESHOLD:
-            x_smoothness = 0.5
+            x_smoothness = MIN_X_SMOOTHNESS
             y_smoothness = Z_world
         
         
         angular_z_correction = 0.0
-        linear_x_correction = 1.0
-        scaling_factor = 1.5
+        # linear_x_correction = 1.0
+        # scaling_factor = 1.0
         
         try:
             if self.scan[SCAN_FRONT_LEFT] < DEVIATION_THRESHOLD:
                 angular_z_correction += (TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL * y_smoothness) / self.scan[SCAN_FRONT_LEFT]
-                distance_ratio_left = max(0, (DEVIATION_THRESHOLD - self.scan[SCAN_FRONT_LEFT]) / DEVIATION_THRESHOLD)
-                linear_x_correction = min(linear_x_correction, np.exp(-scaling_factor * distance_ratio_left))
+                # distance_ratio_left = max(0, (DEVIATION_THRESHOLD - self.scan[SCAN_FRONT_LEFT]) / DEVIATION_THRESHOLD)
+                # linear_x_correction = min(linear_x_correction, np.exp(-scaling_factor * distance_ratio_left))
             if self.scan[SCAN_FRONT_RIGHT] < DEVIATION_THRESHOLD:
                 angular_z_correction += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL * y_smoothness) / self.scan[SCAN_FRONT_RIGHT]
-                distance_ratio_right = max(0, (DEVIATION_THRESHOLD - self.scan[SCAN_FRONT_RIGHT]) / DEVIATION_THRESHOLD)
-                linear_x_correction = min(linear_x_correction, np.exp(-scaling_factor * distance_ratio_right))
+                # distance_ratio_right = max(0, (DEVIATION_THRESHOLD - self.scan[SCAN_FRONT_RIGHT]) / DEVIATION_THRESHOLD)
+                # linear_x_correction = min(linear_x_correction, np.exp(-scaling_factor * distance_ratio_right))
         except ZeroDivisionError:
             pass
         
-        # if angular_z_correction != 0.0:
-        #     self.logger.info(f"Deviation Angular Z Correction: {angular_z_correction:.3f}")
+        if angular_z_correction != 0.0:
+            self.logger.info(f"Deviation Angular Z Correction: {angular_z_correction:.3f}")
         
         # if linear_x_correction != 1.0:
-            # self.logger.info(f"Deviation Linear Speed Correction: {linear_x_correction:.3f}")
-        
-        msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * x_smoothness * linear_x_correction
+        #     self.logger.info(f"Deviation Linear Speed Correction: {linear_x_correction:.3f}")
+            
+        msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * x_smoothness
         msg.angular.z = (item.x / 320.0) + angular_z_correction
 
         self.publish_cmd_vel(msg.linear.x, msg.angular.z)
@@ -865,19 +852,19 @@ class AutonomousNavigation(Node):
     def check_navigation_status(self):
         try:
             msg = Twist()
-            linear_x_correction = 1.0
-            scaling_factor = 1.0
             
             if self.scan[SCAN_FRONT_LEFT] < AVOIDANCE_THRESHOLD:
                 msg.angular.z += (TURN_RIGHT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / self.scan[SCAN_FRONT_LEFT]
-                distance_ratio_left = max(0, (DEVIATION_THRESHOLD - self.scan[SCAN_FRONT_LEFT]) / DEVIATION_THRESHOLD)
-                linear_x_correction = min(linear_x_correction, np.exp(-scaling_factor * distance_ratio_left))
+                # distance_ratio_left = max(0, (DEVIATION_THRESHOLD - self.scan[SCAN_FRONT_LEFT]) / DEVIATION_THRESHOLD)
+                # linear_x_correction = min(linear_x_correction, np.exp(-scaling_factor * distance_ratio_left))
             if self.scan[SCAN_FRONT_RIGHT] < AVOIDANCE_THRESHOLD:
                 msg.angular.z += (TURN_LEFT * ANGULAR_VELOCITY * DISTANCE_PROPRTIONAL) / self.scan[SCAN_FRONT_RIGHT]
-                distance_ratio_right = max(0, (DEVIATION_THRESHOLD - self.scan[SCAN_FRONT_RIGHT]) / DEVIATION_THRESHOLD)
-                linear_x_correction = min(linear_x_correction, np.exp(-scaling_factor * distance_ratio_right))
+                # distance_ratio_right = max(0, (DEVIATION_THRESHOLD - self.scan[SCAN_FRONT_RIGHT]) / DEVIATION_THRESHOLD)
+                # linear_x_correction = min(linear_x_correction, np.exp(-scaling_factor * distance_ratio_right))
             if msg.angular.z != 0.0:
-                msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * linear_x_correction
+                x_smoothness = MIN_X_SMOOTHNESS
+                msg.linear.x = LINEAR_VELOCITY * DISTANCE_PROPRTIONAL * x_smoothness
+                self.logger.info(f"Avoidance Angular Z Correction: {msg.angular.z:.3f} and Linear Speed Correction: {x_smoothness:.3f}")
                 self.publish_cmd_vel(msg.linear.x, msg.angular.z)
         except ZeroDivisionError:
             pass

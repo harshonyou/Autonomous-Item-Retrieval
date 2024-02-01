@@ -61,8 +61,8 @@ class ItemsToPointCloud(Node):
         """
         
         # Check if there are no items in the data
-        if len(items.data) == 0: 
-            return
+        # if len(items.data) == 0: 
+        #     return
         
         # Initialize an empty list to store points
         points = []
