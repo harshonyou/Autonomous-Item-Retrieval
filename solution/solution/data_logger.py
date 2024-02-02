@@ -54,7 +54,7 @@ class DataLogger(Node):
         self.item_data_writer.writerow(['Time', 'Robot ID', 'Item Value', 'Item Colour'])
         
         self.location_data_writer = csv.writer(self.location_data_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        self.location_data_writer.writerow(['Time', 'Robot ID', 'X', 'Y', 'Z', 'Roll', 'Pitch', 'Yaw'])
+        self.location_data_writer.writerow(['Time', 'Robot ID', 'Latitude', 'Longitude', 'X', 'Y', 'Z', 'W'])
         
         self.robot_odom_subscribers = {}
         self.robot_imu_subscribers = {}
