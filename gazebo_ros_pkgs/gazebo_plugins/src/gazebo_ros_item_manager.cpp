@@ -346,6 +346,8 @@ void GazeboRosItemManager::OnUpdate()
 
                 auto [x, y] = generate_item_position(robot_item.cluster_id);
 
+                RCLCPP_INFO(impl_->ros_node_->get_logger(), "Spawning %s %s at (%.2f, %.2f)", to_string(robot_item.colour).c_str(), robot.item_held.c_str(), x, y);
+
                 gazebo::physics::ModelPtr robot_item_model = impl_->world_->ModelByName(robot.item_held);
                 robot_item_model->SetWorldPose(ignition::math::Pose3d(x, y, 0.0, 0.0, 0.0, 0.0));
 
