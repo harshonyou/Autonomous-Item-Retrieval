@@ -5,24 +5,21 @@ import laser_geometry
 from sensor_msgs_py import point_cloud2
 
 class LaserScanToPointCloud(Node):
-    """Node for converting LaserScan data to a PointCloud2 format.
-
-    This ROS node subscribes to a topic that provides LaserScan data and
-    converts this data into a 3D point cloud representation, which is then
-    published for use in various applications like obstacle detection or
-    navigation.
+    """
+    A ROS 2 node that converts 2D laser scan data into a 3D point cloud by extruding the 2D scan points into the vertical dimension.
 
     Attributes:
-        subscription: Subscriber to the LaserScan topic.
-        publisher: Publisher for the PointCloud2 data.
-        laser_projector: Object for projecting laser scan data.
-        height: The height to which the laser scan points are extruded.
-        wall_height_intervals: Number of intervals for the height division.
+        subscription: A subscription to LaserScan messages.
+        publisher: A publisher for PointCloud2 messages, representing the extruded 3D point cloud.
+        laser_projector: A laser_geometry.LaserProjection object for converting LaserScan messages to PointCloud2.
+        height: The height to which the 2D scan points are extruded.
+        wall_height_intervals: The number of intervals (steps) used for extrusion, affecting the point cloud density.
     """
 
     def __init__(self):
-        """Initializes the LaserScanToPointCloud node."""
-       
+        """
+        Initializes the LaserScanToPointCloud node, setting up the subscription to laser scan data and the publisher for the 3D point cloud.
+        """
         super().__init__('laserscan_to_pointcloud')
         
         self.subscription = self.create_subscription(
@@ -38,26 +35,26 @@ class LaserScanToPointCloud(Node):
 
 
     def listener_callback(self, data):
-        """Callback for processing received LaserScan data.
+        """
+        Callback for the LaserScan messages. Converts the 2D laser scan data to a 3D point cloud by extruding the points vertically.
 
         Args:
-            data: The LaserScan data received from the subscription.
+            data: A LaserScan message containing the 2D scan data.
         """
-       
         cloud2d = self.laser_projector.projectLaser(data)
         cloud3d = self.add_height(cloud2d)
         self.publisher.publish(cloud3d)
 
     def add_height(self, cloud2d):
-        """Adds height to 2D laser scan data to create a 3D point cloud.
+        """
+        Adds height to the 2D point cloud data to create a 3D point cloud representation by extruding the scan points vertically.
 
         Args:
-            cloud2d: The 2D point cloud data.
+            cloud2d: The 2D point cloud generated from laser scan data.
 
         Returns:
-            A 3D point cloud with height information added.
+            A PointCloud2 message containing the 3D point cloud with added height.
         """
-        
         gen = point_cloud2.read_points(cloud2d, skip_nans=True, field_names=("x", "y", "z"))
 
         points_with_walls = []
@@ -71,6 +68,12 @@ class LaserScanToPointCloud(Node):
         return cloud3d
 
 def main(args=None):
+    """
+    Main function for the LaserScanToPointCloud node. Initializes the node, handles ROS 2 spin, and ensures clean shutdown.
+
+    Args:
+        args: Arguments passed to the node (default is None).
+    """
     rclpy.init(args=args)
     node = LaserScanToPointCloud()
     rclpy.spin(node)
