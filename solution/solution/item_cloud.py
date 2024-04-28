@@ -16,26 +16,24 @@ import struct
 from solution_interfaces.msg import ProcessedItem, ProcessedItemList
 
 class ItemsToPointCloud(Node):
-    """Node for converting detected items into a point cloud.
-
-    This ROS node subscribes to a topic publishing detected items and converts
-    them into a 3D point cloud representation, which is then published for
-    visualization in RViz.
+    """
+    A ROS 2 node that converts items detected in 2D space into a 3D point cloud representation. Additionally, it processes these items to calculate their 3D coordinates based on their 2D positions and publishes this processed item list.
 
     Attributes:
-        ball2d_sub: A subscriber to the items topic.
-        ball_cloud_pub: Publisher for the point cloud data.
-        camera_frame: Reference frame for the camera.
-        width: Width of the camera frame.
-        height: Height of the camera frame.
-        aspect_ratio: Aspect ratio of the camera frame.
-        h_fov: Horizontal field of view of the camera.
-        v_fov: Vertical field of view of the camera.
-        ball_radius: Radius of the detected balls.
+        items_subscriber: Subscriber to ItemList messages, representing detected items.
+        items_publisher: Publisher for ProcessedItemList messages, containing processed item information.
+        pointcloud_publisher: Publisher for PointCloud2 messages, representing the items in a 3D point cloud.
+        camera_frame: The frame ID of the camera used for detection.
+        width, height: Dimensions of the camera's view.
+        aspect_ratio: Aspect ratio of the camera's view.
+        h_fov, v_fov: Horizontal and vertical field of view of the camera.
+        ball_radius: Radius of the detected items, assumed to be spherical.
     """
     
     def __init__(self):
-        """Initializes the ItemsToPointCloud node."""
+        """
+        Initializes the ItemsToPointCloud node, sets up publishers and subscribers, and initializes camera parameters.
+        """
         super().__init__('items_to_pointcloud')
 
         self.get_logger().info('Detect Ball 3D Node Started')
@@ -46,6 +44,7 @@ class ItemsToPointCloud(Node):
 
         self.camera_frame = "camera_link"
         
+        # Camera parameters initialization
         self.width = 640
         self.height = 480
         self.aspect_ratio = self.width/self.height
@@ -53,17 +52,13 @@ class ItemsToPointCloud(Node):
         self.v_fov = self.h_fov / self.aspect_ratio
         self.ball_radius = 0.075
     
-    def items_callback(self, items: ItemList):
-        """Callback for processing received items and publishing point cloud.
+    def items_callback(self, items: ItemList):   
+        """
+        Callback for ItemList messages. Processes each item to calculate its 3D position and constructs a 3D point cloud representing these items.
 
         Args:
-            items: The list of detected items.
-        """
-        
-        # Check if there are no items in the data
-        # if len(items.data) == 0: 
-        #     return
-        
+            items: An ItemList message containing detected items.
+        """     
         # Initialize an empty list to store points
         points = []
         processed_items = []
@@ -108,7 +103,7 @@ class ItemsToPointCloud(Node):
             processed_items.append(processed_item)
             
             # Set the radius of the point cloud sphere
-            sphere_radius = 0.01
+            sphere_radius = 0.075
             
             # Set the RGB values based on the color of the item
             if item.colour == "RED":
@@ -153,11 +148,16 @@ class ItemsToPointCloud(Node):
         self.pointcloud_publisher.publish(cloud)
 
     def destroy_node(self):
-        """Cleans up resources before node is destroyed."""
         super().destroy_node()
 
 
 def main(args=None):
+    """
+    Main function for the ItemsToPointCloud node. Initializes the node, handles ROS 2 spin, and ensures clean shutdown.
+
+    Args:
+        args: Arguments passed to the node (default is None).
+    """
     rclpy.init(args = args, signal_handler_options = SignalHandlerOptions.NO)
 
     node = ItemsToPointCloud()
