@@ -14,22 +14,24 @@ from solution_interfaces.msg import Peers, PeersList, Halt
 SAFE_DISTANCE = 0.9  # Safe distance threshold
 
 class TrafficManager(Node):
-    """Node for managing traffic among a group of robots.
-
-    This node subscribes to the AMCL pose of each robot and publishes a PointCloud2
-    for each robot, which is a combination of the point clouds of the other robots.
-    It also publishes a halt signal to the robots if they are too close to each other.
+    """
+    A ROS 2 node responsible for managing the traffic of a fleet of robots by ensuring they maintain a safe distance from each other. It subscribes to the pose of each robot and their item holding status, calculates the proximity between robots, and publishes halt commands to prevent collisions. Additionally, it publishes peer lists and combined point clouds for visualization purposes.
 
     Attributes:
-        num_robots (int): Number of robots to manage.
-        robot_subscriptions (dict): Subscriptions to robot's AMCL pose topics.
-        robot_publishers (dict): Publishers for each robot's combined pose.
-        halt_publishers (dict): Publishers to send halt signals to robots.
-        odom_data (dict): Stores odometry data for each robot.
+        num_robots (int): Number of robots in the fleet.
+        robot_subscriptions (dict): Stores subscriptions to the pose topics of each robot.
+        robot_publishers (dict): Publishers for publishing combined point clouds for each robot.
+        peers_publishers (dict): Publishers for publishing lists of peers (other robots) for each robot.
+        halt_publishers (dict): Publishers for issuing halt commands to each robot.
+        odom_data (dict): Stores the latest odometry data for each robot.
+        halt_status (dict): Tracks the halt status (True for halted, False for moving) of each robot.
+        robot_item_values (dict): Stores the latest item value held by each robot.
     """
-    
+
     def __init__(self):
-        """Initializes the TrafficManager node."""
+        """
+        Initializes the TrafficManager node, setting up parameters, subscriptions, and publishers for managing robot traffic.
+        """
         super().__init__('traffic_manager')
         
         self.declare_parameter('num_robots', 1)
@@ -79,21 +81,29 @@ class TrafficManager(Node):
         self.controller_timer = self.create_timer(self.timer_period, self.control_loop)
 
     def item_holders_callback(self, msg):
-        """Callback function for item holders data."""
+        """
+        Callback for item holders information. Updates the item value held by each robot.
+
+        Args:
+            msg (ItemHolders): The message containing item holders information.
+        """
         for data in msg.data:
             self.robot_item_values[data.robot_id] = data.item_value
 
     def odom_callback(self, msg, robot_name):
-        """Callback function for odometry data.
+        """
+        Callback for receiving odometry data from each robot.
 
         Args:
-            msg (PoseWithCovarianceStamped): The incoming pose message.
-            robot_name (str): Name of the robot.
+            msg (PoseWithCovarianceStamped): The message containing the robot's pose.
+            robot_name (str): The name of the robot from which the message was received.
         """
         self.odom_data[robot_name] = msg
 
-    def control_loop(self): # Make priority based on distance from goal, if robot has got an item, if robot has got high priority item
-        """Main control loop for managing traffic."""
+    def control_loop(self):
+        """
+        Main control loop for the TrafficManager. It calculates the proximity between robots and issues halt commands as necessary to maintain a safe distance. It also processes and publishes combined point clouds and peer lists for visualization.
+        """
         robots_to_halt = set()
         
         for i in range(1, self.num_robots + 1):
@@ -143,7 +153,9 @@ class TrafficManager(Node):
         self.process_and_publish()
 
     def process_and_publish(self):
-        """Process odometry data and publish point clouds."""
+        """
+        Processes and publishes combined point clouds and other robots' positions for each robot.
+        """
         # Parameters for the point cloud
         square_side_length = 0.14  # Side length of the square in meters
         point_density = 50  # Number of points per meter
@@ -154,7 +166,9 @@ class TrafficManager(Node):
         self.publish_other_robots_positions()
 
     def publish_other_robots_positions(self):
-        """Publish positions of other robots for each robot using custom message types."""
+        """
+        Publishes the positions of other robots to each robot for situational awareness.
+        """
         for i in range(1, self.num_robots + 1):
             robot_name = f'robot{i}'
             peers_list_msg = PeersList()
@@ -172,7 +186,16 @@ class TrafficManager(Node):
                 self.peers_publishers[robot_name].publish(peers_list_msg)
 
     def generate_robot_point_clouds(self, side_length, density):
-        """Generate point clouds for each robot."""
+        """
+        Generates point clouds representing each robot for visualization purposes.
+
+        Args:
+            side_length (float): The side length of the cube representing a robot in the point cloud.
+            density (int): The density of points per meter in the generated point cloud.
+
+        Returns:
+            dict: A dictionary containing the generated point clouds for each robot.
+        """
         robot_point_clouds = {}
         for i in range(1, self.num_robots + 1):
             robot_name = f'robot{i}'
@@ -182,7 +205,12 @@ class TrafficManager(Node):
         return robot_point_clouds
 
     def publish_combined_point_clouds(self, robot_point_clouds):
-        """Publish combined point clouds for each robot."""
+        """
+        Publishes combined point clouds for each robot, excluding the robot itself from its own point cloud.
+
+        Args:
+            robot_point_clouds (dict): A dictionary containing the point clouds for each robot.
+        """
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = "map"
@@ -201,7 +229,17 @@ class TrafficManager(Node):
                 self.robot_publishers[robot_name].publish(combined_point_cloud_msg)
     
     def generate_cube_cloud(self, odom_data, side_length, density):
-        """Generate a cube-shaped point cloud based on odometry data."""
+        """
+        Generates a cubic point cloud around a robot's position.
+
+        Args:
+            odom_data (Odometry): The odometry data of the robot.
+            side_length (float): The side length of the cube.
+            density (int): The density of points per meter.
+
+        Returns:
+            list: A list of points representing the cube cloud.
+        """
         points = []
         center_x = odom_data.pose.pose.position.x
         center_y = odom_data.pose.pose.position.y
@@ -218,7 +256,9 @@ class TrafficManager(Node):
         return points
 
     def default_odometry(self):
-        """Set default odometry values based on the number of robots."""
+        """
+        Sets default odometry values for robots. Used for testing or in the absence of initial pose information.
+        """
         if self.num_robots == 1:
             self.odom_data["robot1"].pose.pose.position.x = -3.5
             self.odom_data["robot1"].pose.pose.position.y = 0.0
@@ -236,6 +276,9 @@ class TrafficManager(Node):
             self.odom_data["robot3"].pose.pose.position.y = -2.0
     
 def main(args=None):
+    """
+    Main function for running the TrafficManager node. Initializes the node, spins it to process callbacks, and ensures clean shutdown.
+    """
     rclpy.init(args=args)
     node = TrafficManager()
     rclpy.spin(node)
