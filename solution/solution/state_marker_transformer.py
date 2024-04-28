@@ -12,27 +12,24 @@ from tf2_ros import TransformException, Buffer, TransformListener
 TRANSFORM_OFFSET = 0.3
 
 class StateMarkerTransformer(Node):
-    """Node for transforming state data into visual markers.
-
-    This class subscribes to a topic that provides state data with pose
-    information, transforms this data according to the given frames, and
-    then publishes the data as visual markers.
+    """
+    A ROS 2 node that subscribes to StateMarker messages, transforms their positions from the 'odom' coordinate frame to the 'map' coordinate frame, and publishes the transformed state as a Marker message for visualization purposes.
 
     Attributes:
-        r: Red component of the marker's color.
-        g: Green component of the marker's color.
-        b: Blue component of the marker's color.
-        subscriber: Subscriber to the state data topic.
-        publisher: Publisher for the Marker data.
-        source_frame: Source frame for the transformation.
-        target_frame: Target frame for the transformation.
-        tf_buffer: Buffer for storing transform data.
-        tf_listener: Listener for transform data.
+        subscriber (Subscription): Subscriber to StateMarker messages.
+        publisher (Publisher): Publisher for Marker messages.
+        source_frame (str): The source coordinate frame for transformations ('odom').
+        target_frame (str): The target coordinate frame for transformations ('map').
+        namespaced_source_frame (str): The namespaced source frame based on the node's namespace.
+        namespaced_target_frame (str): The namespaced target frame based on the node's namespace.
+        tf_buffer (Buffer): TF2 buffer for storing coordinate frame transformations.
+        tf_listener (TransformListener): TF2 listener for receiving coordinate frame transformations.
     """
 
     def __init__(self):
-        """Initializes the StateMarkerTransformer node."""
-        
+        """
+        Initializes the StateMarkerTransformer node, setting up the subscription to StateMarker messages, the publisher for Marker messages, and the TF2 listener for coordinate frame transformations.
+        """
         super().__init__('state_marker')
         
         self.subscriber = self.create_subscription(
@@ -54,14 +51,12 @@ class StateMarkerTransformer(Node):
         
 
     def subscriber_callback(self, data):
-        """Callback for processing received state data.
-
-        Transforms the received state data and publishes it as a visual marker.
+        """
+        Callback for StateMarker messages. Transforms the position of the state marker from the 'odom' to the 'map' coordinate frame and publishes the transformed state as a Marker message.
 
         Args:
-            data: The received state data with pose information.
+            data (StateMarker): The received StateMarker message.
         """
-        
         timestamp = self.get_clock().now()
         
         # Try to get the transform from the source frame to the target frame
@@ -86,15 +81,15 @@ class StateMarkerTransformer(Node):
         self.publisher.publish(marker)
 
     def create_marker(self, data):
-        """Creates a visual marker from the provided state data.
+        """
+        Creates a Marker message based on the transformed StateMarker data.
 
         Args:
-            data: The state data with pose information.
+            data (StateMarker): The StateMarker message with transformed position.
 
         Returns:
-            A Marker object representing the transformed state data.
+            Marker: The Marker message for visualization.
         """
-        
         marker = Marker()
         marker.header.frame_id = "map"
         marker.header.stamp = self.get_clock().now().to_msg()
@@ -109,6 +104,12 @@ class StateMarkerTransformer(Node):
         return marker
 
 def main(args=None):
+    """
+    Main function for running the StateMarkerTransformer node. Initializes the node, handles ROS 2 spin, and ensures clean shutdown.
+
+    Args:
+        args: Command-line arguments passed to the node (default is None).
+    """
     rclpy.init(args = args)
 
     node = StateMarkerTransformer()
