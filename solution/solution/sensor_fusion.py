@@ -15,25 +15,25 @@ from .pkgs.object_estimation import uv_to_depth_array
 
 class SensorFusion(Node):
     """
-    A ROS2 node for sensor fusion.
-
-    This class extends the ROS2 Node class to create a sensor fusion node. It subscribes to item and laser scan topics,
-    processes the incoming data, and publishes updated laser scan information.
+    A ROS 2 node for fusing camera and laser scan data to enhance obstacle detection. This node subscribes to a topic publishing items detected by a camera and a topic for laser scan data, merges these data sources, and republishes the enhanced laser scan data.
 
     Attributes:
-        items (ItemList): A list of detected items.
-        camera_model (PinholeCameraModel): The camera model used for calculations.
-        h_fov (float): Horizontal field of view in radians.
-        camera_pos_gazebo (tuple): The camera position in Gazebo.
-        actual_radius (float): The actual radius of the item in meters.
-        actual_diameter (float): The actual diameter of the item in meters.
+        items (ItemList): Storage for the latest detected items.
+        camera_model (PinholeCameraModel): The camera model for projecting 2D detections into 3D space.
+        h_fov (float): The horizontal field of view of the camera.
+        camera_pos_gazebo (tuple): The position of the camera in the Gazebo simulation environment.
+        actual_radius (float): The actual radius of the detected objects in meters.
+        actual_diameter (float): The actual diameter of the detected objects, derived from the actual radius.
+        persistent_items (dict): A dictionary for tracking detected items over time.
+        item_decay_time (float): The time in seconds after which undetected items are removed from tracking.
+        item_subscriber (Subscription): The subscriber to the topic publishing detected items.
+        scan_subscriber (Subscription): The subscriber to the laser scan data topic.
+        publisher (Publisher): The publisher for the enhanced laser scan data.
     """
     
     def __init__(self):
         """
-        Initialize the SensorFusion node.
-        
-        Sets up the subscriptions for item and laser scan data and initializes the publisher for the updated scan data.
+        Initializes the SensorFusion node, setting up subscriptions to detected items and laser scan data, and prepares the publisher for the enhanced laser scan data.
         """
         super().__init__('sensor_fusion')
         
@@ -65,12 +65,10 @@ class SensorFusion(Node):
 
     def item_callback(self, msg):
         """
-        Callback for the item data subscription.
-
-        This method updates the node's item list with the received data.
+        Callback for processing detected items. Updates tracking of persistent items and manages item decay over time.
 
         Args:
-            msg (ItemList): The received item list message.
+            msg (ItemList): The message containing detected items.
         """
         self.skip_counter += 1
         if self.skip_counter % 10 != 0:
@@ -84,7 +82,7 @@ class SensorFusion(Node):
         new_items = {}
         
         for item in msg.data:
-            item_id = f"obstacle_{item.x}_{item.y}"  # Assuming each item has a unique identifier
+            item_id = f"obstacle_{item.x}_{item.y}"
             new_items[item_id] = {
                 'item': item,
                 'last_seen': current_time
@@ -99,13 +97,10 @@ class SensorFusion(Node):
 
     def scan_callback(self, msg: LaserScan):
         """
-        Callback for the laser scan data subscription.
-
-        Processes the received laser scan data along with the item data to produce an updated laser scan.
-        Publishes the updated scan data.
+        Callback for processing laser scan data. Integrates the depth information derived from camera-detected items into the laser scan data and publishes the enhanced scan.
 
         Args:
-            msg (LaserScan): The received laser scan message.
+            msg (LaserScan): The laser scan data to be enhanced.
         """
         depth_arrs = []
         
@@ -163,6 +158,12 @@ class SensorFusion(Node):
         self.publisher.publish(msg)
 
 def main(args=None):
+    """
+    Main function for running the SensorFusion node. Initializes the node, spins it to keep processing callbacks, and ensures clean shutdown.
+
+    Args:
+        args: Command-line arguments passed to the node (default is None).
+    """
     rclpy.init(args=args)
     laser_scan_republisher = SensorFusion()
     rclpy.spin(laser_scan_republisher)
