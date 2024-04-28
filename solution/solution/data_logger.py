@@ -17,8 +17,34 @@ from assessment_interfaces.msg import ItemLog, ItemHolders, ItemHolder
 from tf2_ros import TransformException, Buffer, TransformListener
 
 class DataLogger(Node):
+    """
+    A ROS 2 node for logging data related to robot navigation and item interaction in a CSV format.
+
+    Attributes:
+        args: Command line arguments passed to the node.
+        start_time: The start time of the node.
+        counter: A counter used for item logging.
+        previous_msg: Stores the last ItemLog message for comparison.
+        item_log_file, tb_data_file, item_data_file, location_data_file: File handles for logging different types of data.
+        data_writer, item_data_writer, location_data_writer: CSV writers for the respective data files.
+        robot_odom_subscribers, robot_imu_subscribers: Dictionaries mapping robot names to their respective Odometry and IMU subscribers.
+        robot_items: A dictionary mapping robot names to their last known item holder state.
+        total_distances, velocity_sums, angular_velocity_sums, velocity_counts: Dictionaries for storing navigation metrics per robot.
+        linear_accel_sums, linear_accel_counts: Dictionaries for storing linear acceleration data per robot.
+        odoms, locations, robot_stamp: Dictionaries for storing the latest Odometry, GeoPose, and timestamp per robot.
+        tf_buffer, tf_listener: Transform buffer and listener for coordinate frame transformations.
+        item_log_subscriber, item_holders_subscriber: Subscribers for item log and holder messages.
+        control_loop_counter, last_control_time: Control loop counter and timestamp of the last control loop execution.
+        timer_period, timer: ROS timer for periodic execution of the control loop.
+    """
 
     def __init__(self, args):
+        """
+        Initializes the DataLogger node, sets up file logging, subscribers, and the control loop timer.
+
+        Args:
+            args: Command line arguments passed to the node.
+        """
         super().__init__('data_logger')
 
         parser = argparse.ArgumentParser()
@@ -54,7 +80,7 @@ class DataLogger(Node):
         self.item_data_writer.writerow(['Time', 'Robot ID', 'Item Value', 'Item Colour'])
         
         self.location_data_writer = csv.writer(self.location_data_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        self.location_data_writer.writerow(['Time', 'Robot ID', 'Latitude', 'Longitude', 'X', 'Y', 'Z', 'W'])
+        self.location_data_writer.writerow(['Time', 'Robot ID', 'Latitude', 'Longitude', 'Altitude', 'X', 'Y', 'Z', 'W'])
         
         self.robot_odom_subscribers = {}
         self.robot_imu_subscribers = {}
@@ -129,6 +155,13 @@ class DataLogger(Node):
         
     
     def odom_callback(self, msg, robot_name):
+        """
+        Callback for Odometry messages, logs velocity data and updates the robot's location.
+        
+        Args:
+            msg: The Odometry message.
+            robot_name: The name of the robot sending the message.
+        """
         self.odoms[robot_name] = msg
         self.velocity_sums[robot_name] += msg.twist.twist.linear.x
         self.angular_velocity_sums[robot_name] += msg.twist.twist.angular.z
@@ -136,10 +169,23 @@ class DataLogger(Node):
         self.robot_stamp[robot_name] = msg.header.stamp
 
     def imu_callback(self, msg, robot_name):
+        """
+        Callback for IMU messages, logs linear acceleration data.
+
+        Args:
+            msg: The IMU message.
+            robot_name: The name of the robot sending the message.
+        """
         self.linear_accel_sums[robot_name] += msg.linear_acceleration.x
         self.linear_accel_counts[robot_name] += 1
         
     def item_holders_callback(self, msg):
+        """
+        Callback for ItemHolders messages, logs changes in item holding status.
+
+        Args:
+            msg: The ItemHolders message.
+        """
         for data in msg.data:
             if self.robot_items[data.robot_id].item_value != data.item_value:
                 ts = (self.get_clock().now() - self.start_time).nanoseconds / 1e9
@@ -147,6 +193,12 @@ class DataLogger(Node):
                 self.item_data_writer.writerow([f"{ts:.2f}", data.robot_id, data.item_value, data.item_colour])
 
     def odom_to_map(self, robot_name):
+        """
+        Transforms the robot's Odometry data to the map frame and updates its location.
+
+        Args:
+            robot_name: The name of the robot.
+        """
         namespaced_source_frame = f"{robot_name}/odom"
         namespaced_target_frame = f"{robot_name}/map"
         
@@ -170,12 +222,18 @@ class DataLogger(Node):
         self.locations[robot_name].orientation.w = self.odoms[robot_name].pose.pose.orientation.w + transform.transform.rotation.w
     
     def flush_all(self):
+        """
+        Flushes all open file buffers to ensure data is written to disk.
+        """
         self.item_log_file.flush()
         self.tb_data_file.flush()
         self.item_data_file.flush()
         self.location_data_file.flush()
     
     def control_loop(self):
+        """
+        Control loop executed by the ROS timer. It calculates and logs various metrics.
+        """
         current_time = self.get_clock().now()
         time_diff = (current_time - self.last_control_time).nanoseconds / 1e9  # Convert to seconds     
         
@@ -216,6 +274,12 @@ class DataLogger(Node):
         self.last_control_time = current_time
 
     def item_log_callback(self, msg):
+        """
+        Callback for ItemLog messages, logs item interaction data.
+
+        Args:
+            msg: The ItemLog message.
+        """
         if self.previous_msg is None or self.is_different(msg, self.previous_msg):
             ts = (self.get_clock().now() - self.start_time).nanoseconds / 1e9
             self.item_log_file.write(f'{ts:.2f},{self.counter},')
@@ -229,22 +293,44 @@ class DataLogger(Node):
         self.previous_msg = msg
     
     def is_different(self, current_msg, previous_msg):
+        """
+        Compares two ItemLog messages to determine if there has been a change.
+
+        Args:
+            current_msg: The current ItemLog message.
+            previous_msg: The previous ItemLog message.
+
+        Returns:
+            bool: True if there is a difference, False otherwise.
+        """
         return (
             current_msg.total_value != previous_msg.total_value
         )
 
     def close_files(self):
+        """
+        Closes all open file handles.
+        """
         self.item_log_file.close()
         self.tb_data_file.close()
         self.item_data_file.close()
         self.location_data_file.close()
 
     def destroy_node(self):
+        """
+        Cleans up before shutting down the node. Closes file handles.
+        """
         self.close_files()
         super().destroy_node()
 
 
 def main(args=sys.argv):
+    """
+    Main function for the DataLogger node. Initializes and spins the node.
+
+    Args:
+        args: System arguments.
+    """
 
     rclpy.init(args = args, signal_handler_options = SignalHandlerOptions.NO)
 
