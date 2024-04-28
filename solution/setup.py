@@ -56,7 +56,7 @@ setup(
             'autonomous_navigation = solution.autonomous_navigation:main',
             'traffic_manager = solution.traffic_manager:main',
             'transformer = solution.transformer:main',
-            'fresh = solution.fresh:main',
+            'fsm_old_implementation = solution.fsm_old_implementation:main',
         ],
     },
 )
