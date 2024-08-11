@@ -5,6 +5,7 @@ This repository contains the implementation of an autonomous mobile robot system
 For a detailed report, please visit [here](https://harshonyou.github.io/Autonomous-Item-Retrieval/report.pdf).
 
 
+Click below to watch a demonstration of the Autonomous Mobile Robot Item Retrieval System in action:
 <a href="https://www.youtube.com/watch?v=4YK3MqbfO-g?cc_load_policy=1&cc_lang_pref=en">
     <img src="https://img.youtube.com/vi/4YK3MqbfO-g/maxresdefault.jpg" alt="Watch the video" style="width:100%; max-width:600px;">
 </a>
