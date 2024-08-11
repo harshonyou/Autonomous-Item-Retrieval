@@ -1,0 +1,19 @@
+Time,Robot ID,Item Value,Item Colour
+0.05,robot1,10,GREEN
+83.15,robot3,15,BLUE
+84.87,robot1,15,BLUE
+118.70,robot2,15,BLUE
+229.84,robot1,10,GREEN
+382.48,robot1,0,
+398.83,robot3,0,
+430.78,robot2,0,
+480.57,robot1,10,GREEN
+554.07,robot2,5,RED
+597.49,robot3,10,GREEN
+602.91,robot2,0,
+652.20,robot1,15,BLUE
+758.82,robot3,0,
+801.80,robot2,10,GREEN
+876.55,robot1,10,GREEN
+948.40,robot2,15,BLUE
+956.20,robot1,0,
