@@ -6,6 +6,9 @@ This repository contains the implementation of an autonomous mobile robot system
 
 The system leverages ROS 2's modularity and real-time capabilities to orchestrate a fleet of TurtleBot3 Waffle Pi robots equipped with LiDAR, cameras, and odometry sensors. The implementation focuses on autonomous exploration, dynamic obstacle avoidance, item detection and retrieval, and efficient path planning back to a designated home zone.
 
+For a detailed report, please visit [here](https://harshonyou.github.io/Autonomous-Item-Retrieval/report.pdf).
+
+
 ## Prerequisites
 
 - Ubuntu 20.04 LTS
