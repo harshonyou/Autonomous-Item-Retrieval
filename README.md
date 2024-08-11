@@ -15,20 +15,6 @@ The system leverages ROS 2's modularity and real-time capabilities to orchestrat
 
 Ensure ROS 2 and Gazebo are properly installed on your system. For installation instructions, refer to the official ROS 2 documentation and the Gazebo installation guide.
 
-## Dependencies
-
-- py-trees (https://py-trees.readthedocs.io/en/devel/)
-``` pip install py-trees ```
- 
-- matplotlib (https://matplotlib.org/)
-``` pip install matplotlib ```
-
-- seaborn (https://seaborn.pydata.org/)
-``` pip install seaborn ```
-
-- pandas (https://pandas.pydata.org/)
-``` pip install pandas ```
-
 ## Installation
 
 Clone the repository and build the ROS 2 workspace:
